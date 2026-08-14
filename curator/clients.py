@@ -113,13 +113,24 @@ class ImmichClient(JsonClient):
         if not isinstance(result, list):
             raise ApiError("Unexpected Immich add assets response")
 
-    def get_album(self, album_id: str) -> dict[str, Any]:
-        result, _ = self._json_request(
-            "GET", f"{self.api_root}/albums/{album_id}", self.headers
-        )
-        if not isinstance(result, dict) or result.get("id") != album_id:
-            raise ApiError("Unexpected Immich album detail response")
-        return result
+    def iter_album_assets(self, album_id: str, page_size: int = 500) -> Iterator[dict[str, Any]]:
+        page = 1
+        while True:
+            result, _ = self._json_request(
+                "POST",
+                f"{self.api_root}/search/metadata",
+                self.headers,
+                {"page": page, "size": page_size, "albumIds": [album_id]},
+            )
+            assets = result.get("assets", {}) if isinstance(result, dict) else {}
+            items = assets.get("items", []) if isinstance(assets, dict) else []
+            if not isinstance(items, list):
+                raise ApiError("Immich album search response assets.items is not a list")
+            yield from (item for item in items if isinstance(item, dict))
+            next_page = assets.get("nextPage")
+            if next_page in (None, "", 0, "0"):
+                break
+            page = int(next_page)
 
 
 class PhotoPrismClient(JsonClient):

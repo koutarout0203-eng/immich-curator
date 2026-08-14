@@ -26,8 +26,8 @@ class FakeClient:
     def add_assets_to_album(self, album_id, asset_ids):
         self.added = list(asset_ids)
 
-    def get_album(self, album_id):
-        return {"id": album_id, "assets": [{"id": identifier} for identifier in self.added]}
+    def iter_album_assets(self, album_id):
+        return iter({"id": identifier} for identifier in self.added)
 
 
 class ReviewTests(unittest.TestCase):

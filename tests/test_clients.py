@@ -47,6 +47,17 @@ class ClientTests(unittest.TestCase):
             [photo["UID"] for photo in client.iter_photos(page_size=2)], ["a", "b", "c"]
         )
 
+    def test_album_asset_search_pagination(self) -> None:
+        client = FakeImmich(
+            [
+                {"assets": {"items": [{"id": "a"}], "nextPage": 2}},
+                {"assets": {"items": [{"id": "b"}], "nextPage": None}},
+            ]
+        )
+        self.assertEqual(
+            [asset["id"] for asset in client.iter_album_assets("album-1")], ["a", "b"]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

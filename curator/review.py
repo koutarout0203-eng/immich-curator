@@ -7,7 +7,7 @@ class AlbumClient(Protocol):
     def find_owned_albums(self, name: str) -> list[dict[str, Any]]: ...
     def create_album(self, name: str, description: str) -> dict[str, Any]: ...
     def add_assets_to_album(self, album_id: str, asset_ids: list[str]) -> None: ...
-    def get_album(self, album_id: str) -> dict[str, Any]: ...
+    def iter_album_assets(self, album_id: str): ...
 
 
 def review_asset_ids(memories: dict[str, Any], event_limit: int, max_assets: int) -> list[str]:
@@ -67,12 +67,10 @@ def create_review_album(
     if not isinstance(album_id, str) or not album_id:
         raise ValueError("Album response has no id")
     client.add_assets_to_album(album_id, asset_ids)
-    verified = client.get_album(album_id)
-    album_assets = verified.get("assets")
-    if not isinstance(album_assets, list):
-        raise ValueError("Album verification response has no assets list")
     present = {
-        asset.get("id") for asset in album_assets if isinstance(asset, dict) and asset.get("id")
+        asset.get("id")
+        for asset in client.iter_album_assets(album_id)
+        if isinstance(asset, dict) and asset.get("id")
     }
     missing = [identifier for identifier in asset_ids if identifier not in present]
     if missing:
