@@ -6,8 +6,6 @@ services:
     environment:
       IMMICH_BASE_URL: "http://immich.example.local:2283"
       IMMICH_API_KEY: "REPLACE_IN_TRUENAS_UI"
-      PHOTOPRISM_BASE_URL: "http://192.168.14.37:20800"
-      PHOTOPRISM_TOKEN: "REPLACE_IN_TRUENAS_UI"
       API_TIMEOUT_SECONDS: "30"
     volumes:
       - /mnt/POOL/apps/immich-curator:/data
