@@ -9,6 +9,7 @@ from pathlib import Path
 from .clients import ApiError, ImmichClient, PhotoPrismClient
 from .memories import build_memories
 from .reconcile import reconcile
+from .review import create_review_album
 
 
 def _required(name: str) -> str:
@@ -80,6 +81,25 @@ def run_memories(
     return 0
 
 
+def run_review_album(
+    input_path: str, name: str, event_limit: int, max_assets: int, apply: bool
+) -> int:
+    memories = json.loads(Path(input_path).read_text(encoding="utf-8"))
+    if not isinstance(memories, dict):
+        raise ValueError("Memory JSON root must be an object")
+    client = _immich_client() if apply else None
+    result = create_review_album(
+        client,  # type: ignore[arg-type]
+        memories,
+        name=name,
+        event_limit=event_limit,
+        max_assets=max_assets,
+        apply=apply,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="immich-curator")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -96,6 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     snapshot.add_argument("--output", default="/data/candidates.json")
     snapshot.add_argument("--page-size", type=int, default=500)
+    review = subparsers.add_parser("review-album", help="plan or create an Immich review album")
+    review.add_argument("--input", default="/data/memories.json")
+    review.add_argument("--name", default="Curator Memory Review")
+    review.add_argument("--events", type=int, default=5)
+    review.add_argument("--max-assets", type=int, default=60)
+    review.add_argument("--apply", action="store_true")
     return parser
 
 
@@ -104,6 +130,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "probe":
             return run_probe()
+        if args.command == "review-album":
+            if args.events < 1 or args.max_assets < 1 or args.max_assets > 100:
+                raise ValueError("review limits must be positive and --max-assets must not exceed 100")
+            return run_review_album(
+                args.input, args.name.strip(), args.events, args.max_assets, args.apply
+            )
         if args.page_size < 1 or args.page_size > 1000:
             raise ValueError("--page-size must be between 1 and 1000")
         if args.command == "memories":

@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
@@ -78,6 +79,47 @@ class ImmichClient(JsonClient):
             if next_page in (None, "", 0, "0"):
                 break
             page = int(next_page)
+
+    def find_owned_albums(self, name: str) -> list[dict[str, Any]]:
+        result, _ = self._json_request(
+            "GET", f"{self.api_root}/albums?name={quote(name)}&isOwned=true", self.headers
+        )
+        if not isinstance(result, list):
+            raise ApiError("Immich album response is not a list")
+        return [
+            album
+            for album in result
+            if isinstance(album, dict) and album.get("albumName") == name
+        ]
+
+    def create_album(self, name: str, description: str) -> dict[str, Any]:
+        result, _ = self._json_request(
+            "POST",
+            f"{self.api_root}/albums",
+            self.headers,
+            {"albumName": name, "description": description},
+        )
+        if not isinstance(result, dict) or not result.get("id"):
+            raise ApiError("Unexpected Immich create album response")
+        return result
+
+    def add_assets_to_album(self, album_id: str, asset_ids: list[str]) -> None:
+        result, _ = self._json_request(
+            "PUT",
+            f"{self.api_root}/albums/{album_id}/assets",
+            self.headers,
+            {"ids": asset_ids},
+        )
+        if not isinstance(result, list):
+            raise ApiError("Unexpected Immich add assets response")
+
+    def get_album(self, album_id: str) -> dict[str, Any]:
+        result, _ = self._json_request(
+            "GET", f"{self.api_root}/albums/{album_id}", self.headers
+        )
+        if not isinstance(result, dict) or result.get("id") != album_id:
+            raise ApiError("Unexpected Immich album detail response")
+        return result
 
 
 class PhotoPrismClient(JsonClient):
