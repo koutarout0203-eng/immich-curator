@@ -40,15 +40,25 @@ def create_review_album(
     event_limit: int = 5,
     max_assets: int = 60,
     apply: bool = False,
+    live_timeline_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     if not name.strip():
         raise ValueError("Review album name must not be empty")
-    asset_ids = review_asset_ids(memories, event_limit, max_assets)
+    requested_ids = review_asset_ids(memories, event_limit, max_assets)
+    if apply and live_timeline_ids is None:
+        raise ValueError("Live Timeline IDs are required before applying a review album")
+    asset_ids = (
+        [identifier for identifier in requested_ids if identifier in live_timeline_ids]
+        if live_timeline_ids is not None
+        else requested_ids
+    )
     plan = {
         "mode": "apply" if apply else "dry-run",
         "album_name": name,
         "event_limit": event_limit,
         "asset_count": len(asset_ids),
+        "excluded_not_timeline": len(requested_ids) - len(asset_ids),
+        "live_timeline_verified": live_timeline_ids is not None,
         "asset_ids": asset_ids,
     }
     if not apply:

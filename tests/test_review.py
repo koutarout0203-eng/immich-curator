@@ -41,10 +41,25 @@ class ReviewTests(unittest.TestCase):
 
     def test_apply_creates_adds_and_verifies(self) -> None:
         client = FakeClient()
-        result = create_review_album(client, MEMORIES, name="Review", apply=True)
+        result = create_review_album(
+            client, MEMORIES, name="Review", apply=True, live_timeline_ids={"a", "b", "c"}
+        )
         self.assertTrue(client.created)
         self.assertEqual(client.added, ["a", "b", "c"])
         self.assertTrue(result["verified"])
+
+    def test_apply_excludes_assets_not_in_live_timeline(self) -> None:
+        client = FakeClient()
+        result = create_review_album(
+            client, MEMORIES, name="Review", apply=True, live_timeline_ids={"a", "c"}
+        )
+        self.assertEqual(client.added, ["a", "c"])
+        self.assertEqual(result["excluded_not_timeline"], 1)
+        self.assertTrue(result["live_timeline_verified"])
+
+    def test_apply_requires_live_timeline_verification(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Live Timeline IDs"):
+            create_review_album(FakeClient(), MEMORIES, name="Review", apply=True)
 
 
 if __name__ == "__main__":

@@ -88,6 +88,15 @@ def run_review_album(
     if not isinstance(memories, dict):
         raise ValueError("Memory JSON root must be an object")
     client = _immich_client() if apply else None
+    live_timeline_ids = (
+        {
+            identifier
+            for asset in client.iter_timeline_assets()
+            if isinstance((identifier := asset.get("id")), str) and identifier
+        }
+        if client is not None
+        else None
+    )
     result = create_review_album(
         client,  # type: ignore[arg-type]
         memories,
@@ -95,6 +104,7 @@ def run_review_album(
         event_limit=event_limit,
         max_assets=max_assets,
         apply=apply,
+        live_timeline_ids=live_timeline_ids,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
