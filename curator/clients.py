@@ -40,6 +40,23 @@ class JsonClient:
         except json.JSONDecodeError as exc:
             raise ApiError("API returned invalid JSON") from exc
 
+    def _bytes_request(self, url: str, headers: dict[str, str], max_bytes: int) -> bytes:
+        request = Request(url, method="GET", headers=headers)
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > max_bytes:
+                    raise ApiError(f"API response exceeds {max_bytes} bytes")
+                raw = response.read(max_bytes + 1)
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ApiError(f"API HTTP {exc.code}: {detail[:500]}") from exc
+        except URLError as exc:
+            raise ApiError(f"API connection failed: {exc.reason}") from exc
+        if len(raw) > max_bytes:
+            raise ApiError(f"API response exceeds {max_bytes} bytes")
+        return raw
+
 
 class ImmichClient(JsonClient):
     def __init__(self, base_url: str, api_key: str, timeout: float = 30.0) -> None:
@@ -55,6 +72,14 @@ class ImmichClient(JsonClient):
     def version(self) -> dict[str, Any]:
         result, _ = self._json_request("GET", f"{self.api_root}/server/version", self.headers)
         return result if isinstance(result, dict) else {}
+
+    def thumbnail(self, asset_id: str, max_bytes: int = 10_000_000) -> bytes:
+        query = urlencode({"size": "preview"})
+        return self._bytes_request(
+            f"{self.api_root}/assets/{quote(asset_id)}/thumbnail?{query}",
+            {"x-api-key": self.headers["x-api-key"], "Accept": "image/*"},
+            max_bytes,
+        )
 
     def iter_timeline_assets(self, page_size: int = 500) -> Iterator[dict[str, Any]]:
         page = 1

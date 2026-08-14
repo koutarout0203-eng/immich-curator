@@ -1,6 +1,6 @@
 services:
   curator:
-    image: ghcr.io/OWNER/immich-curator:v0.1.0
+    image: ghcr.io/OWNER/immich-curator:v0.2.0
     container_name: immich-curator
     restart: "no"
     environment:

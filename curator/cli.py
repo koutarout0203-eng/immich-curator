@@ -10,6 +10,7 @@ from .clients import ApiError, ImmichClient, PhotoPrismClient
 from .memories import build_memories
 from .reconcile import reconcile
 from .review import create_review_album
+from .visual import build_visual_memories
 
 
 def _required(name: str) -> str:
@@ -110,6 +111,24 @@ def run_review_album(
     return 0
 
 
+def run_visual_memories(
+    output: str, event_limit: int, max_assets: int, similarity_distance: int
+) -> int:
+    client = _immich_client()
+    assets = list(client.iter_timeline_assets())
+    result = build_visual_memories(
+        assets,
+        client.thumbnail,
+        event_limit=event_limit,
+        max_assets=max_assets,
+        similarity_distance=similarity_distance,
+    )
+    output_path = Path(output)
+    _write_json_atomic(output_path, result)
+    print(json.dumps({"output": str(output_path), "counts": result["counts"]}, ensure_ascii=False))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="immich-curator")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -132,6 +151,13 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--events", type=int, default=5)
     review.add_argument("--max-assets", type=int, default=60)
     review.add_argument("--apply", action="store_true")
+    visual = subparsers.add_parser(
+        "visual-memories", help="rank live Immich events using preview thumbnails"
+    )
+    visual.add_argument("--output", default="/data/visual-memories.json")
+    visual.add_argument("--events", type=int, default=5)
+    visual.add_argument("--max-assets", type=int, default=8)
+    visual.add_argument("--similarity-distance", type=int, default=8)
     return parser
 
 
@@ -145,6 +171,19 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("review limits must be positive and --max-assets must not exceed 100")
             return run_review_album(
                 args.input, args.name.strip(), args.events, args.max_assets, args.apply
+            )
+        if args.command == "visual-memories":
+            if (
+                args.events < 1
+                or args.events > 20
+                or args.max_assets < 1
+                or args.max_assets > 20
+                or args.similarity_distance < 0
+                or args.similarity_distance > 24
+            ):
+                raise ValueError("visual policy values are outside their safe limits")
+            return run_visual_memories(
+                args.output, args.events, args.max_assets, args.similarity_distance
             )
         if args.page_size < 1 or args.page_size > 1000:
             raise ValueError("--page-size must be between 1 and 1000")

@@ -1,7 +1,7 @@
 # Immich Curator
 
 Status: Active
-Version: 0.1.0
+Version: 0.2.0
 Started: 2026-08-15
 
 ## Purpose
@@ -71,6 +71,33 @@ python -m curator review-album --input data/memories.json --apply
 ```
 
 作成または再利用する所有Album名は`Curator Memory Review`です。`--apply`直前にImmich Live APIから`visibility=timeline`を全件再取得し、過去snapshotに含まれていても現在Archive・TrashにあるAssetは除外します。適用後は全対象Assetの所属を再取得して検証します。この操作はAlbum所属だけを追加し、Asset visibility、Favorite、metadata、原本を変更しません。必要なImmich API key権限は`asset.read`、`album.read`、`album.create`、`albumAsset.create`です。
+
+## Visual representative experiment
+
+Event内の類似写真と明らかな技術的失敗を減らすため、Live Timelineの上位5 EventについてImmichのStable thumbnail endpointから`preview`だけを取得して解析します。
+
+```powershell
+python -m curator visual-memories --output data/visual-memories.json
+```
+
+解析内容:
+
+- 64-bit differential hashとHamming距離による近似画像クラスタ
+- エッジ分散による相対的な鮮明度
+- 輝度、暗部率、明部率による露出ペナルティ
+- 類似クラスタ内ではFavoriteを最優先し、その次にtechnical scoreを使用
+- 各Eventから最大8枚を選択
+
+元画像は取得せず、previewはメモリ上だけで処理して保存しません。これは美的評価ではなく、ぼけ・極端な露出・近似画像を減らすための実験的な技術スコアです。生成後は、別名のReview Albumとして比較します。
+
+```powershell
+python -m curator review-album `
+  --input data/visual-memories.json `
+  --name "Curator Visual Review" `
+  --apply
+```
+
+Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 
 ## TrueNAS
 

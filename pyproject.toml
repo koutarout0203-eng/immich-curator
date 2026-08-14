@@ -1,8 +1,9 @@
 [project]
 name = "immich-curator"
-version = "0.1.0"
+version = "0.2.0"
 requires-python = ">=3.11"
-description = "Read-only Immich and PhotoPrism metadata reconciler"
+description = "Read-only Immich memory suggestion curator"
+dependencies = ["Pillow>=11,<13"]
 
 [project.scripts]
 immich-curator = "curator.cli:main"
