@@ -112,7 +112,12 @@ def run_review_album(
 
 
 def run_visual_memories(
-    output: str, event_limit: int, max_assets: int, similarity_distance: int
+    output: str,
+    event_limit: int,
+    max_assets: int,
+    similarity_distance: int,
+    phash_distance: int,
+    sequence_seconds: int,
 ) -> int:
     client = _immich_client()
     assets = list(client.iter_timeline_assets())
@@ -122,6 +127,8 @@ def run_visual_memories(
         event_limit=event_limit,
         max_assets=max_assets,
         similarity_distance=similarity_distance,
+        phash_distance=phash_distance,
+        sequence_seconds=sequence_seconds,
     )
     output_path = Path(output)
     _write_json_atomic(output_path, result)
@@ -158,6 +165,8 @@ def build_parser() -> argparse.ArgumentParser:
     visual.add_argument("--events", type=int, default=5)
     visual.add_argument("--max-assets", type=int, default=8)
     visual.add_argument("--similarity-distance", type=int, default=8)
+    visual.add_argument("--phash-distance", type=int, default=12)
+    visual.add_argument("--sequence-seconds", type=int, default=120)
     return parser
 
 
@@ -180,10 +189,19 @@ def main(argv: list[str] | None = None) -> int:
                 or args.max_assets > 20
                 or args.similarity_distance < 0
                 or args.similarity_distance > 24
+                or args.phash_distance < 0
+                or args.phash_distance > 24
+                or args.sequence_seconds < 0
+                or args.sequence_seconds > 3600
             ):
                 raise ValueError("visual policy values are outside their safe limits")
             return run_visual_memories(
-                args.output, args.events, args.max_assets, args.similarity_distance
+                args.output,
+                args.events,
+                args.max_assets,
+                args.similarity_distance,
+                args.phash_distance,
+                args.sequence_seconds,
             )
         if args.page_size < 1 or args.page_size > 1000:
             raise ValueError("--page-size must be between 1 and 1000")

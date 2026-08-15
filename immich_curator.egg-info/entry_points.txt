@@ -1,0 +1,2 @@
+[console_scripts]
+immich-curator = curator.cli:main
