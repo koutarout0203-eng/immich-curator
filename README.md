@@ -112,7 +112,15 @@ GPS付きTimeline写真から推定ホームより50km以上離れた位置ア�
 python -m curator home-candidates --output data/home-candidates.json
 ```
 
-各約10kmセルを、写真枚数ではなく異なる撮影日数、登場月数、夜間・早朝の撮影日数で順位付けします。半年ごとの上位候補と代替候補を残し、25km以内で連続する首位候補を時期別の居住地候補へ統合します。旅行先で同日に大量撮影しても1撮影日として数えます。結果は旅行判定へ自動適用されないため、引越し時期と場所を人が確認します。
+各約10kmセルを、写真枚数ではなく異なる撮影日数、登場月数、夜間・早朝の撮影日数で順位付けします。半年ごとの上位候補と代替候補を残し、25km以内で連続する首位候補を時期別の居住地候補へ統合します。旅行先で同日に大量撮影しても1撮影日として数えます。各セル内のImmich既存`city / state / country`最頻値を住所ラベルとして表示します。結果は旅行判定へ自動適用されないため、引越し時期と場所を人が確認します。
+
+4月など四半期境界の引越しを詳しく確認する場合は3か月窓で生成します。
+
+```powershell
+python -m curator home-candidates `
+  --output data/home-candidates-3m.json `
+  --window-months 3
+```
 
 ```powershell
 python -m curator trip-candidates --output data/trips.json

@@ -80,6 +80,7 @@ class TripTests(unittest.TestCase):
         periods = result["suggested_home_periods"]
         self.assertAlmostEqual(periods[0]["latitude"], 35.0)
         self.assertAlmostEqual(periods[1]["longitude"], 135.5)
+        self.assertEqual(periods[0]["location_label"], "Old Home, Japan")
         self.assertFalse(result["policy"]["automatically_applied_to_trips"])
 
     def test_trip_album_is_created_once_and_verified(self):

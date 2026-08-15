@@ -84,8 +84,8 @@ def build_home_candidates(
     windows: list[dict[str, Any]] = []
     for window_start in range(first_window, last_month + 1, window_months):
         window_end = window_start + window_months
-        stats: dict[tuple[float, float], dict[str, set[Any]]] = {}
-        for taken, _, coordinates in valid:
+        stats: dict[tuple[float, float], dict[str, Any]] = {}
+        for taken, asset, coordinates in valid:
             if not (window_start <= _month_index(taken) < window_end):
                 continue
             latitude, longitude = coordinates
@@ -93,11 +93,16 @@ def build_home_candidates(
                 round(latitude / cell_degrees) * cell_degrees,
                 round(longitude / cell_degrees) * cell_degrees,
             )
-            row = stats.setdefault(cell, {"days": set(), "months": set(), "night_days": set()})
+            row = stats.setdefault(
+                cell,
+                {"days": set(), "months": set(), "night_days": set(), "labels": Counter()},
+            )
             row["days"].add(taken.date())
             row["months"].add((taken.year, taken.month))
             if taken.hour < 7 or taken.hour >= 20:
                 row["night_days"].add(taken.date())
+            if label := _asset_location_label(asset):
+                row["labels"][label] += 1
         ranked: list[dict[str, Any]] = []
         for (latitude, longitude), row in stats.items():
             active_days = len(row["days"])
@@ -112,6 +117,9 @@ def build_home_candidates(
                     "active_months": active_months,
                     "night_days": night_days,
                     "score": round(score, 2),
+                    "location_label": row["labels"].most_common(1)[0][0]
+                    if row["labels"]
+                    else None,
                 }
             )
         ranked.sort(key=lambda row: (row["score"], row["night_days"], row["active_days"]), reverse=True)
@@ -152,10 +160,7 @@ def build_home_candidates(
             period["active_months"] += primary["active_months"]
             period["night_days"] += primary["night_days"]
             period["window_count"] += 1
-            if primary["confidence"] == "low":
-                period["confidence"] = "low"
-            elif primary["confidence"] == "medium" and period["confidence"] == "high":
-                period["confidence"] = "medium"
+            period[f"{primary['confidence']}_windows"] += 1
         else:
             periods.append(
                 {
@@ -164,13 +169,25 @@ def build_home_candidates(
                     "latitude": primary["latitude"],
                     "longitude": primary["longitude"],
                     "radius_km": 30,
+                    "location_label": primary["location_label"],
                     "active_days": primary["active_days"],
                     "active_months": primary["active_months"],
                     "night_days": primary["night_days"],
                     "window_count": 1,
-                    "confidence": primary["confidence"],
+                    "high_windows": int(primary["confidence"] == "high"),
+                    "medium_windows": int(primary["confidence"] == "medium"),
+                    "low_windows": int(primary["confidence"] == "low"),
                 }
             )
+    for period in periods:
+        required = math.ceil(period["window_count"] / 2)
+        period["confidence"] = (
+            "high"
+            if period["high_windows"] >= required
+            else "medium"
+            if period["high_windows"] + period["medium_windows"] >= required
+            else "low"
+        )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "policy": {
@@ -208,6 +225,15 @@ def _location_label(anchors: list[dict[str, Any]]) -> str:
     latitude = sum(item[0] for item in valid) / len(valid)
     longitude = sum(item[1] for item in valid) / len(valid)
     return f"{latitude:.3f}, {longitude:.3f}"
+
+
+def _asset_location_label(asset: dict[str, Any]) -> str | None:
+    exif = asset.get("exifInfo")
+    if not isinstance(exif, dict):
+        return None
+    parts = [exif.get("city"), exif.get("state"), exif.get("country")]
+    label = ", ".join(str(part).strip() for part in parts if part)
+    return label or None
 
 
 def build_trip_candidates(
