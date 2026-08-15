@@ -14,6 +14,7 @@ from .trips import (
     build_home_candidates,
     build_trip_candidates,
     create_trip_candidate_album,
+    create_all_trip_candidate_albums,
     normalize_home_periods,
 )
 from .visual import build_visual_memories
@@ -218,6 +219,30 @@ def run_trip_album(input_path: str, trip_id: str, name: str | None, apply: bool)
     return 0
 
 
+def run_trip_albums(input_path: str, apply: bool) -> int:
+    trip_data = json.loads(Path(input_path).read_text(encoding="utf-8"))
+    if not isinstance(trip_data, dict):
+        raise ValueError("Trip JSON root must be an object")
+    client = _immich_client() if apply else None
+    live_timeline_ids = (
+        {
+            identifier
+            for asset in client.iter_timeline_assets()
+            if isinstance((identifier := asset.get("id")), str) and identifier
+        }
+        if client is not None
+        else None
+    )
+    result = create_all_trip_candidate_albums(
+        client,
+        trip_data,
+        apply=apply,
+        live_timeline_ids=live_timeline_ids,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="immich-curator")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -270,6 +295,11 @@ def build_parser() -> argparse.ArgumentParser:
     trip_album.add_argument("--trip-id", required=True)
     trip_album.add_argument("--name")
     trip_album.add_argument("--apply", action="store_true")
+    trip_albums = subparsers.add_parser(
+        "trip-albums", help="plan or create all immutable trip candidate albums"
+    )
+    trip_albums.add_argument("--input", default="/data/trips.json")
+    trip_albums.add_argument("--apply", action="store_true")
     homes = subparsers.add_parser(
         "home-candidates", help="suggest time-bounded home locations for manual review"
     )
@@ -317,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.command == "trip-album":
             return run_trip_album(args.input, args.trip_id.strip(), args.name, args.apply)
+        if args.command == "trip-albums":
+            return run_trip_albums(args.input, args.apply)
         if args.command == "home-candidates":
             if args.page_size < 1 or args.page_size > 1000 or args.window_months < 1 or args.window_months > 24:
                 raise ValueError("home candidate page size must be 1..1000 and window months 1..24")

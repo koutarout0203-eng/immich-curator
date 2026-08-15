@@ -4,6 +4,7 @@ from curator.trips import (
     build_home_candidates,
     build_trip_candidates,
     create_trip_candidate_album,
+    create_all_trip_candidate_albums,
     distance_km,
     normalize_home_periods,
 )
@@ -26,17 +27,26 @@ class FakeClient:
     def __init__(self, existing=False):
         self.existing = existing
         self.added = []
+        self.albums = {}
 
     def find_owned_albums(self, name):
-        return [{"id": "existing"}] if self.existing else []
+        if self.existing:
+            return [{"id": "existing"}]
+        return [{"id": album_id} for album_id, album in self.albums.items() if album["name"] == name]
 
     def create_album(self, name, description):
-        return {"id": "trip-album", "albumName": name}
+        album_id = f"trip-album-{len(self.albums) + 1}"
+        self.albums[album_id] = {"name": name, "assets": []}
+        return {"id": album_id, "albumName": name}
 
     def add_assets_to_album(self, album_id, asset_ids):
         self.added = list(asset_ids)
+        if album_id in self.albums:
+            self.albums[album_id]["assets"] = list(asset_ids)
 
     def iter_album_assets(self, album_id):
+        if album_id in self.albums:
+            return iter({"id": identifier} for identifier in self.albums[album_id]["assets"])
         return iter({"id": identifier} for identifier in self.added)
 
 
@@ -185,6 +195,19 @@ class TripTests(unittest.TestCase):
                 apply=True,
                 live_timeline_ids={"a", "b"},
             )
+
+    def test_bulk_trip_albums_are_idempotent(self):
+        data = {
+            "trips": [
+                {"trip_id": "one", "suggested_album_name": "2024-01-01 - Trip Candidate - One", "assets": [{"id": "a"}]},
+                {"trip_id": "two", "suggested_album_name": "2024-02-01 - Trip Candidate - Two", "assets": [{"id": "b"}]},
+            ]
+        }
+        client = FakeClient()
+        first = create_all_trip_candidate_albums(client, data, apply=True, live_timeline_ids={"a", "b"})
+        second = create_all_trip_candidate_albums(client, data, apply=True, live_timeline_ids={"a", "b"})
+        self.assertEqual(first["counts"]["created"], 2)
+        self.assertEqual(second["counts"]["skipped_verified"], 2)
 
 
 if __name__ == "__main__":

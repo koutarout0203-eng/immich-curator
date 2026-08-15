@@ -512,3 +512,92 @@ def create_trip_candidate_album(
     if missing:
         raise ValueError(f"Trip album verification failed: {len(missing)} assets missing")
     return {**plan, "album_id": album_id, "verified": True, "immutable_by_convention": True}
+
+
+def create_all_trip_candidate_albums(
+    client: TripAlbumClient | None,
+    trip_data: dict[str, Any],
+    *,
+    apply: bool = False,
+    live_timeline_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    trips = trip_data.get("trips")
+    if not isinstance(trips, list):
+        raise ValueError("Trip JSON does not contain a trips list")
+    valid_trips = [trip for trip in trips if isinstance(trip, dict)]
+    if apply and (client is None or live_timeline_ids is None):
+        raise ValueError("Client and Live Timeline IDs are required for bulk apply")
+    if not apply:
+        return {
+            "mode": "dry-run",
+            "trip_candidates": len(valid_trips),
+            "requested_asset_memberships": sum(
+                len(trip.get("assets", [])) for trip in valid_trips if isinstance(trip.get("assets"), list)
+            ),
+            "writes_to_immich": False,
+        }
+
+    results: list[dict[str, Any]] = []
+    counts = Counter(created=0, skipped_verified=0, conflict=0, failed=0)
+    for trip in valid_trips:
+        trip_id = trip.get("trip_id")
+        name = trip.get("suggested_album_name")
+        rows = trip.get("assets")
+        if not isinstance(trip_id, str) or not isinstance(name, str) or not isinstance(rows, list):
+            counts["failed"] += 1
+            results.append({"trip_id": trip_id, "album_name": name, "status": "failed", "error": "invalid trip record"})
+            continue
+        requested = [
+            row.get("id")
+            for row in rows
+            if isinstance(row, dict) and isinstance(row.get("id"), str)
+        ]
+        asset_ids = [identifier for identifier in requested if identifier in live_timeline_ids]
+        try:
+            existing = client.find_owned_albums(name)
+            if len(existing) > 1:
+                raise ValueError("multiple owned albums have the same name")
+            if existing:
+                album_id = existing[0].get("id")
+                present = {
+                    asset.get("id")
+                    for asset in client.iter_album_assets(album_id)
+                    if isinstance(asset, dict) and isinstance(asset.get("id"), str)
+                }
+                expected = set(asset_ids)
+                if present == expected:
+                    counts["skipped_verified"] += 1
+                    results.append({"trip_id": trip_id, "album_name": name, "album_id": album_id, "status": "skipped_verified", "asset_count": len(expected)})
+                else:
+                    counts["conflict"] += 1
+                    results.append({"trip_id": trip_id, "album_name": name, "album_id": album_id, "status": "conflict", "expected_assets": len(expected), "existing_assets": len(present)})
+                continue
+            if not asset_ids:
+                raise ValueError("no assets remain in the Live Timeline")
+            album = client.create_album(
+                name,
+                "Generated once by Immich Curator. Photo metadata and visibility are unchanged; this album is not automatically updated.",
+            )
+            album_id = album.get("id")
+            if not isinstance(album_id, str) or not album_id:
+                raise ValueError("created album has no id")
+            client.add_assets_to_album(album_id, asset_ids)
+            present = {
+                asset.get("id")
+                for asset in client.iter_album_assets(album_id)
+                if isinstance(asset, dict) and isinstance(asset.get("id"), str)
+            }
+            if set(asset_ids) != present:
+                raise ValueError(f"verification mismatch: expected {len(set(asset_ids))}, found {len(present)}")
+            counts["created"] += 1
+            results.append({"trip_id": trip_id, "album_name": name, "album_id": album_id, "status": "created", "asset_count": len(present)})
+        except (ValueError, RuntimeError) as exc:
+            counts["failed"] += 1
+            results.append({"trip_id": trip_id, "album_name": name, "status": "failed", "error": str(exc)})
+    return {
+        "mode": "apply",
+        "trip_candidates": len(valid_trips),
+        "counts": dict(counts),
+        "immutable_by_convention": True,
+        "results": results,
+    }

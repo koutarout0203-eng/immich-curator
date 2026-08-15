@@ -170,6 +170,20 @@ python -m curator trip-album `
 
 旅行Album名は名前順でも日付順に並ぶよう、`YYYY-MM-DD - Trip Candidate - 場所`形式で生成します。確認後の確定名も`YYYY-MM-DD - Trip - 名前`形式を推奨します。
 
+すべての候補を一括作成する場合も、最初はdry-runします。
+
+```powershell
+python -m curator trip-albums --input data/trips.json
+```
+
+確認後に`--apply`を付けます。処理は再実行可能で、同名かつ同一内容のAlbumは`skipped_verified`、同名で内容が異なるAlbumは`conflict`として変更しません。各Albumを作成後に所属Assetを再取得して検証し、1件の失敗で残りを中断しません。
+
+```powershell
+python -m curator trip-albums `
+  --input data/trips.json `
+  --apply
+```
+
 Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 
 ## TrueNAS
