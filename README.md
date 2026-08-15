@@ -102,6 +102,42 @@ python -m curator review-album `
   --apply
 ```
 
+## Immutable trip candidate albums
+
+GPS付きTimeline写真から推定ホームより50km以上離れた位置アンカーを抽出し、36時間以内に連続するアンカーを旅行候補としてまとめます。同じ旅行日内のGPSなしカメラ写真も含めますが、写真のEXIF・GPS・日時は変更しません。
+
+```powershell
+python -m curator trip-candidates --output data/trips.json
+```
+
+ホームは最頻出の約10km GPSセルから推定します。推定が誤っている場合だけ、正しい座標を明示して再生成します。
+
+```powershell
+python -m curator trip-candidates `
+  --output data/trips.json `
+  --home-lat 35.0000 `
+  --home-lon 139.0000
+```
+
+GPSなし写真には、最寄りGPS写真まで30分以内を`high`、6時間以内を`medium`、それ以外の旅行日内を`low`として記録します。JSON内の`trip_id`を確認して、まずdry-runします。
+
+```powershell
+python -m curator trip-album `
+  --input data/trips.json `
+  --trip-id TRIP_ID
+```
+
+確認後だけAlbumを作成します。
+
+```powershell
+python -m curator trip-album `
+  --input data/trips.json `
+  --trip-id TRIP_ID `
+  --apply
+```
+
+作成時にはLive Timelineを再取得し、現在Timeline外のAssetを除外します。同名Albumが存在する場合は更新せずエラーにし、作成済み旅行AlbumをCuratorが自動変更しない規約とします。
+
 Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 
 ## TrueNAS

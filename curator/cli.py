@@ -10,6 +10,7 @@ from .clients import ApiError, ImmichClient, PhotoPrismClient
 from .memories import build_memories
 from .reconcile import reconcile
 from .review import create_review_album
+from .trips import build_trip_candidates, create_trip_candidate_album
 from .visual import build_visual_memories
 
 
@@ -138,6 +139,57 @@ def run_visual_memories(
     return 0
 
 
+def run_trip_candidates(
+    output: str,
+    page_size: int,
+    home_lat: float | None,
+    home_lon: float | None,
+    away_km: float,
+    anchor_gap_hours: float,
+    minimum_anchors: int,
+    minimum_assets: int,
+) -> int:
+    client = _immich_client()
+    home = (home_lat, home_lon) if home_lat is not None and home_lon is not None else None
+    result = build_trip_candidates(
+        client.iter_timeline_assets(page_size=page_size),
+        home=home,
+        away_km=away_km,
+        anchor_gap_hours=anchor_gap_hours,
+        minimum_anchors=minimum_anchors,
+        minimum_assets=minimum_assets,
+    )
+    output_path = Path(output)
+    _write_json_atomic(output_path, result)
+    print(json.dumps({"output": str(output_path), "counts": result["counts"], "home": result["policy"]["home"]}, ensure_ascii=False))
+    return 0
+
+
+def run_trip_album(input_path: str, trip_id: str, apply: bool) -> int:
+    trip_data = json.loads(Path(input_path).read_text(encoding="utf-8"))
+    if not isinstance(trip_data, dict):
+        raise ValueError("Trip JSON root must be an object")
+    client = _immich_client() if apply else None
+    live_timeline_ids = (
+        {
+            identifier
+            for asset in client.iter_timeline_assets()
+            if isinstance((identifier := asset.get("id")), str) and identifier
+        }
+        if client is not None
+        else None
+    )
+    result = create_trip_candidate_album(
+        client,
+        trip_data,
+        trip_id=trip_id,
+        apply=apply,
+        live_timeline_ids=live_timeline_ids,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="immich-curator")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -170,6 +222,23 @@ def build_parser() -> argparse.ArgumentParser:
     visual.add_argument("--phash-distance", type=int, default=12)
     visual.add_argument("--sequence-seconds", type=int, default=120)
     visual.add_argument("--burst-seconds", type=int, default=15)
+    trips = subparsers.add_parser(
+        "trip-candidates", help="detect immutable trip album candidates from GPS anchors"
+    )
+    trips.add_argument("--output", default="/data/trips.json")
+    trips.add_argument("--page-size", type=int, default=500)
+    trips.add_argument("--home-lat", type=float)
+    trips.add_argument("--home-lon", type=float)
+    trips.add_argument("--away-km", type=float, default=50.0)
+    trips.add_argument("--anchor-gap-hours", type=float, default=36.0)
+    trips.add_argument("--minimum-anchors", type=int, default=3)
+    trips.add_argument("--minimum-assets", type=int, default=10)
+    trip_album = subparsers.add_parser(
+        "trip-album", help="plan or create one immutable trip candidate album"
+    )
+    trip_album.add_argument("--input", default="/data/trips.json")
+    trip_album.add_argument("--trip-id", required=True)
+    trip_album.add_argument("--apply", action="store_true")
     return parser
 
 
@@ -208,6 +277,30 @@ def main(argv: list[str] | None = None) -> int:
                 args.phash_distance,
                 args.sequence_seconds,
                 args.burst_seconds,
+            )
+        if args.command == "trip-album":
+            return run_trip_album(args.input, args.trip_id.strip(), args.apply)
+        if args.command == "trip-candidates":
+            if (args.home_lat is None) != (args.home_lon is None):
+                raise ValueError("--home-lat and --home-lon must be provided together")
+            if (
+                args.page_size < 1
+                or args.page_size > 1000
+                or args.away_km <= 0
+                or args.anchor_gap_hours <= 0
+                or args.minimum_anchors < 1
+                or args.minimum_assets < 1
+            ):
+                raise ValueError("trip policy values must be positive and page size must be 1..1000")
+            return run_trip_candidates(
+                args.output,
+                args.page_size,
+                args.home_lat,
+                args.home_lon,
+                args.away_km,
+                args.anchor_gap_hours,
+                args.minimum_anchors,
+                args.minimum_assets,
             )
         if args.page_size < 1 or args.page_size > 1000:
             raise ValueError("--page-size must be between 1 and 1000")
