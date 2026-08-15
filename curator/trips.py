@@ -4,7 +4,7 @@ import hashlib
 import math
 from bisect import bisect_left, bisect_right
 from collections import Counter
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Protocol
 
 from .memories import asset_datetime
@@ -299,6 +299,7 @@ def build_trip_candidates(
     anchor_gap_hours: float = 36.0,
     minimum_anchors: int = 3,
     minimum_assets: int = 10,
+    trip_padding_hours: float = 3.0,
 ) -> dict[str, Any]:
     source = [asset for asset in assets if asset_datetime(asset) is not None]
     if home is not None and home_periods is not None:
@@ -363,8 +364,8 @@ def build_trip_candidates(
         last = asset_datetime(group_assets[-1])
         if first is None or last is None:
             continue
-        start = datetime.combine(first.date(), time.min, tzinfo=first.tzinfo)
-        end = datetime.combine(last.date(), time.max, tzinfo=last.tzinfo)
+        start = first - timedelta(hours=trip_padding_hours)
+        end = last + timedelta(hours=trip_padding_hours)
         trip_assets = [
             asset
             for asset in source
@@ -401,6 +402,8 @@ def build_trip_candidates(
                 "label": label,
                 "start": start.isoformat(),
                 "end": end.isoformat(),
+                "first_away_anchor": first.isoformat(),
+                "last_away_anchor": last.isoformat(),
                 "anchor_count": len(group),
                 "home_period": {
                     "period_id": group_period["period_id"],
@@ -442,6 +445,7 @@ def build_trip_candidates(
             "splits_on_detected_home_return": True,
             "minimum_anchors": minimum_anchors,
             "minimum_assets": minimum_assets,
+            "trip_padding_hours": trip_padding_hours,
             "writes_to_immich": False,
             "writes_location_metadata": False,
         },
@@ -460,6 +464,7 @@ def create_trip_candidate_album(
     trip_data: dict[str, Any],
     *,
     trip_id: str,
+    name_override: str | None = None,
     apply: bool = False,
     live_timeline_ids: set[str] | None = None,
 ) -> dict[str, Any]:
@@ -470,7 +475,7 @@ def create_trip_candidate_album(
     if len(matches) != 1:
         raise ValueError(f"Trip ID {trip_id!r} was not found exactly once")
     trip = matches[0]
-    name = trip.get("suggested_album_name")
+    name = name_override.strip() if isinstance(name_override, str) else trip.get("suggested_album_name")
     if not isinstance(name, str) or not name.strip():
         raise ValueError("Trip candidate has no album name")
     rows = trip.get("assets")

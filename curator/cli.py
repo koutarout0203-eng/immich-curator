@@ -154,6 +154,7 @@ def run_trip_candidates(
     minimum_anchors: int,
     minimum_assets: int,
     home_periods_path: str | None,
+    trip_padding_hours: float,
 ) -> int:
     client = _immich_client()
     home = (home_lat, home_lon) if home_lat is not None and home_lon is not None else None
@@ -171,6 +172,7 @@ def run_trip_candidates(
         anchor_gap_hours=anchor_gap_hours,
         minimum_anchors=minimum_anchors,
         minimum_assets=minimum_assets,
+        trip_padding_hours=trip_padding_hours,
     )
     output_path = Path(output)
     _write_json_atomic(output_path, result)
@@ -190,7 +192,7 @@ def run_home_candidates(output: str, page_size: int, window_months: int) -> int:
     return 0
 
 
-def run_trip_album(input_path: str, trip_id: str, apply: bool) -> int:
+def run_trip_album(input_path: str, trip_id: str, name: str | None, apply: bool) -> int:
     trip_data = json.loads(Path(input_path).read_text(encoding="utf-8"))
     if not isinstance(trip_data, dict):
         raise ValueError("Trip JSON root must be an object")
@@ -208,6 +210,7 @@ def run_trip_album(input_path: str, trip_id: str, apply: bool) -> int:
         client,
         trip_data,
         trip_id=trip_id,
+        name_override=name,
         apply=apply,
         live_timeline_ids=live_timeline_ids,
     )
@@ -259,11 +262,13 @@ def build_parser() -> argparse.ArgumentParser:
     trips.add_argument("--anchor-gap-hours", type=float, default=36.0)
     trips.add_argument("--minimum-anchors", type=int, default=3)
     trips.add_argument("--minimum-assets", type=int, default=10)
+    trips.add_argument("--trip-padding-hours", type=float, default=3.0)
     trip_album = subparsers.add_parser(
         "trip-album", help="plan or create one immutable trip candidate album"
     )
     trip_album.add_argument("--input", default="/data/trips.json")
     trip_album.add_argument("--trip-id", required=True)
+    trip_album.add_argument("--name")
     trip_album.add_argument("--apply", action="store_true")
     homes = subparsers.add_parser(
         "home-candidates", help="suggest time-bounded home locations for manual review"
@@ -311,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.burst_seconds,
             )
         if args.command == "trip-album":
-            return run_trip_album(args.input, args.trip_id.strip(), args.apply)
+            return run_trip_album(args.input, args.trip_id.strip(), args.name, args.apply)
         if args.command == "home-candidates":
             if args.page_size < 1 or args.page_size > 1000 or args.window_months < 1 or args.window_months > 24:
                 raise ValueError("home candidate page size must be 1..1000 and window months 1..24")
@@ -328,6 +333,8 @@ def main(argv: list[str] | None = None) -> int:
                 or args.anchor_gap_hours <= 0
                 or args.minimum_anchors < 1
                 or args.minimum_assets < 1
+                or args.trip_padding_hours < 0
+                or args.trip_padding_hours > 24
             ):
                 raise ValueError("trip policy values must be positive and page size must be 1..1000")
             return run_trip_candidates(
@@ -340,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.minimum_anchors,
                 args.minimum_assets,
                 args.home_periods,
+                args.trip_padding_hours,
             )
         if args.page_size < 1 or args.page_size > 1000:
             raise ValueError("--page-size must be between 1 and 1000")

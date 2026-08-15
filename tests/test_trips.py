@@ -58,6 +58,7 @@ class TripTests(unittest.TestCase):
             assets,
             home=(35.68, 139.76),
             minimum_assets=5,
+            trip_padding_hours=24,
         )
         self.assertEqual(result["counts"]["trip_candidates"], 1)
         trip = result["trips"][0]
@@ -65,6 +66,24 @@ class TripTests(unittest.TestCase):
         rows = {row["id"]: row for row in trip["assets"]}
         self.assertEqual(rows["camera-near"]["inference_confidence"], "high")
         self.assertEqual(rows["camera-mid"]["inference_confidence"], "medium")
+
+    def test_trip_bounds_exclude_home_photos_outside_anchor_padding(self):
+        assets = [
+            asset("home-before", "2024-07-07T05:00:00", 35.0, 139.0, "Home"),
+            asset("away-1", "2024-07-07T10:00:00", 36.2, 138.7, "Away"),
+            asset("camera", "2024-07-07T11:00:00"),
+            asset("away-2", "2024-07-07T18:00:00", 36.2, 138.7, "Away"),
+            asset("home-after", "2024-07-07T23:00:00", 35.0, 139.0, "Home"),
+        ]
+        result = build_trip_candidates(
+            assets,
+            home=(35.0, 139.0),
+            minimum_anchors=2,
+            minimum_assets=1,
+            trip_padding_hours=3,
+        )
+        identifiers = [row["id"] for row in result["trips"][0]["assets"]]
+        self.assertEqual(identifiers, ["away-1", "camera", "away-2"])
 
     def test_home_candidates_use_recurring_days_and_detect_a_move(self):
         assets = []

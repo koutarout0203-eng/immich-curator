@@ -104,7 +104,7 @@ python -m curator review-album `
 
 ## Immutable trip candidate albums
 
-GPS付きTimeline写真から推定ホームより50km以上離れた位置アンカーを抽出し、36時間以内に連続するアンカーを旅行候補としてまとめます。離れたアンカーの間にホーム半径内のGPS写真があれば、帰宅したものとして別旅行へ分割します。同じ旅行日内のGPSなしカメラ写真も含めますが、写真のEXIF・GPS・日時は変更しません。
+GPS付きTimeline写真から推定ホームより50km以上離れた位置アンカーを抽出し、36時間以内に連続するアンカーを旅行候補としてまとめます。離れたアンカーの間にホーム半径内のGPS写真があれば、帰宅したものとして別旅行へ分割します。最初の遠方アンカー3時間前から最後の遠方アンカー3時間後だけを対象にし、出発前・帰宅後の自宅写真を抑えながらGPSなしカメラ写真も含めます。写真のEXIF・GPS・日時は変更しません。
 
 旅行判定の前に、半年ごとのホーム候補を生成します。
 
@@ -153,6 +153,16 @@ python -m curator trip-album `
 python -m curator trip-album `
   --input data/trips.json `
   --trip-id TRIP_ID `
+  --apply
+```
+
+既存候補Albumを変更せず修正版を比較する場合は、`--name`で別名を指定できます。
+
+```powershell
+python -m curator trip-album `
+  --input data/trips.json `
+  --trip-id TRIP_ID `
+  --name "YYYY-MM-DD - Trip Candidate v2 - 場所" `
   --apply
 ```
 
