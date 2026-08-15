@@ -69,6 +69,24 @@ class VisualTests(unittest.TestCase):
         self.assertEqual([asset["id"] for asset in selected], ["b", "c"])
         self.assertEqual(selected[0]["similar_count"], 2)
 
+    def test_selection_collapses_a_short_burst_even_when_images_differ(self) -> None:
+        metrics = {
+            "a": analyze_image(image_bytes("sharp")),
+            "b": analyze_image(image_bytes("dark")),
+        }
+        assets = [
+            {"id": "a", "type": "IMAGE", "localDateTime": "2024-01-01T10:00:00"},
+            {"id": "b", "type": "IMAGE", "localDateTime": "2024-01-01T10:00:10"},
+        ]
+        selected = select_visual_representatives(assets, metrics, limit=2)
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]["similar_count"], 2)
+
+    def test_center_crop_phashes_are_recorded(self) -> None:
+        metrics = analyze_image(image_bytes("sharp"))
+        self.assertEqual(len(metrics.crop_phashes), 2)
+        self.assertEqual(len(metrics.json()["crop_phashes"]), 2)
+
     def test_build_visual_memories_uses_thumbnail_loader(self) -> None:
         assets = [
             {

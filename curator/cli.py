@@ -118,6 +118,7 @@ def run_visual_memories(
     similarity_distance: int,
     phash_distance: int,
     sequence_seconds: int,
+    burst_seconds: int,
 ) -> int:
     client = _immich_client()
     assets = list(client.iter_timeline_assets())
@@ -129,6 +130,7 @@ def run_visual_memories(
         similarity_distance=similarity_distance,
         phash_distance=phash_distance,
         sequence_seconds=sequence_seconds,
+        burst_seconds=burst_seconds,
     )
     output_path = Path(output)
     _write_json_atomic(output_path, result)
@@ -167,6 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
     visual.add_argument("--similarity-distance", type=int, default=8)
     visual.add_argument("--phash-distance", type=int, default=12)
     visual.add_argument("--sequence-seconds", type=int, default=120)
+    visual.add_argument("--burst-seconds", type=int, default=15)
     return parser
 
 
@@ -193,6 +196,8 @@ def main(argv: list[str] | None = None) -> int:
                 or args.phash_distance > 24
                 or args.sequence_seconds < 0
                 or args.sequence_seconds > 3600
+                or args.burst_seconds < 0
+                or args.burst_seconds > 300
             ):
                 raise ValueError("visual policy values are outside their safe limits")
             return run_visual_memories(
@@ -202,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.similarity_distance,
                 args.phash_distance,
                 args.sequence_seconds,
+                args.burst_seconds,
             )
         if args.page_size < 1 or args.page_size > 1000:
             raise ValueError("--page-size must be between 1 and 1000")

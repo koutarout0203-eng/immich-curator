@@ -82,8 +82,10 @@ python -m curator visual-memories --output data/visual-memories.json
 
 解析内容:
 
-- 64-bit differential hashとperceptual hashによる近似画像クラスタ
+- 64-bit differential hashと、全体・中央75%・中央50%のperceptual hashによるズーム耐性のある近似画像クラスタ
+- 15秒以内の短時間撮影を内容にかかわらず1つのburstとして統合
 - 2分以内に撮影された写真には緩めのpHash閾値を適用し、構図違いの連写を統合
+- クラスタ内の全画像と比較し、画角が徐々に変化する連続撮影も連鎖的に統合
 - エッジ分散による相対的な鮮明度
 - 輝度、暗部率、明部率による露出ペナルティ
 - 類似クラスタ内ではFavoriteを最優先し、その次にtechnical scoreを使用

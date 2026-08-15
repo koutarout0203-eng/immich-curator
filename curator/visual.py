@@ -14,6 +14,7 @@ from .memories import asset_datetime, group_events
 class ImageMetrics:
     dhash: int
     phash: int
+    crop_phashes: tuple[int, ...]
     sharpness: float
     brightness: float
     dark_fraction: float
@@ -24,6 +25,7 @@ class ImageMetrics:
         value = asdict(self)
         value["dhash"] = f"{self.dhash:016x}"
         value["phash"] = f"{self.phash:016x}"
+        value["crop_phashes"] = [f"{item:016x}" for item in self.crop_phashes]
         return value
 
 
@@ -81,9 +83,17 @@ def analyze_image(raw: bytes) -> ImageMetrics:
     bright_fraction = sum(histogram[240:]) / total
     exposure_penalty = abs(brightness - 128.0) / 128.0 + dark_fraction + bright_fraction
     technical_score = math.log1p(sharpness) * 20.0 - exposure_penalty * 35.0
+    crop_phashes: list[int] = []
+    for fraction in (0.75, 0.5):
+        width = max(int(gray.width * fraction), 1)
+        height = max(int(gray.height * fraction), 1)
+        left = (gray.width - width) // 2
+        top = (gray.height - height) // 2
+        crop_phashes.append(_phash(gray.crop((left, top, left + width, top + height))))
     return ImageMetrics(
         dhash=dhash,
         phash=_phash(gray),
+        crop_phashes=tuple(crop_phashes),
         sharpness=round(sharpness, 3),
         brightness=round(brightness, 3),
         dark_fraction=round(dark_fraction, 5),
@@ -94,6 +104,12 @@ def analyze_image(raw: bytes) -> ImageMetrics:
 
 def hamming_distance(left: int, right: int) -> int:
     return (left ^ right).bit_count()
+
+
+def _minimum_phash_distance(left: ImageMetrics, right: ImageMetrics) -> int:
+    left_hashes = (left.phash, *left.crop_phashes)
+    right_hashes = (right.phash, *right.crop_phashes)
+    return min(hamming_distance(a, b) for a in left_hashes for b in right_hashes)
 
 
 def _seconds_apart(left: dict[str, Any], right: dict[str, Any]) -> float | None:
@@ -112,30 +128,37 @@ def select_visual_representatives(
     similarity_distance: int = 8,
     phash_distance: int = 12,
     sequence_seconds: int = 120,
+    burst_seconds: int = 15,
 ) -> list[dict[str, Any]]:
     clusters: list[list[dict[str, Any]]] = []
-    cluster_hashes: list[int] = []
-    cluster_phashes: list[int] = []
     for asset in assets:
         identifier = asset.get("id")
         if not isinstance(identifier, str) or identifier not in metrics:
             continue
-        image_hash = metrics[identifier].dhash
-        image_phash = metrics[identifier].phash
+        image_metrics = metrics[identifier]
         match = None
         for index, cluster in enumerate(clusters):
-            dhash_match = hamming_distance(image_hash, cluster_hashes[index]) <= similarity_distance
-            phash_gap = hamming_distance(image_phash, cluster_phashes[index])
-            phash_match = phash_gap <= phash_distance
-            seconds = _seconds_apart(asset, cluster[0])
-            sequence_match = seconds is not None and seconds <= sequence_seconds and phash_gap <= 20
-            if dhash_match or phash_match or sequence_match:
+            member_matches = []
+            for member in cluster:
+                member_metrics = metrics[str(member.get("id"))]
+                phash_gap = _minimum_phash_distance(image_metrics, member_metrics)
+                seconds = _seconds_apart(asset, member)
+                member_matches.append(
+                    hamming_distance(image_metrics.dhash, member_metrics.dhash)
+                    <= similarity_distance
+                    or phash_gap <= phash_distance
+                    or (seconds is not None and seconds <= burst_seconds)
+                    or (
+                        seconds is not None
+                        and seconds <= sequence_seconds
+                        and phash_gap <= 20
+                    )
+                )
+            if any(member_matches):
                 match = index
                 break
         if match is None:
             clusters.append([asset])
-            cluster_hashes.append(image_hash)
-            cluster_phashes.append(image_phash)
         else:
             clusters[match].append(asset)
 
@@ -178,6 +201,7 @@ def build_visual_memories(
     similarity_distance: int = 8,
     phash_distance: int = 12,
     sequence_seconds: int = 120,
+    burst_seconds: int = 15,
 ) -> dict[str, Any]:
     events = [event for event in group_events(assets) if len(event) >= 3]
     events.sort(
@@ -214,6 +238,7 @@ def build_visual_memories(
                     similarity_distance=similarity_distance,
                     phash_distance=phash_distance,
                     sequence_seconds=sequence_seconds,
+                    burst_seconds=burst_seconds,
                 ),
             }
         )
@@ -225,6 +250,7 @@ def build_visual_memories(
             "similarity_hamming_distance": similarity_distance,
             "phash_hamming_distance": phash_distance,
             "sequence_seconds": sequence_seconds,
+            "burst_seconds": burst_seconds,
             "writes_to_immich": False,
             "persists_thumbnails": False,
         },
