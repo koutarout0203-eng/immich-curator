@@ -27,6 +27,13 @@ def _required(name: str) -> str:
     return value
 
 
+def _configure_utf8_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def _immich_client() -> ImmichClient:
     timeout = float(os.environ.get("API_TIMEOUT_SECONDS", "30"))
     return ImmichClient(_required("IMMICH_BASE_URL"), _required("IMMICH_API_KEY"), timeout)
@@ -310,6 +317,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_utf8_stdio()
     args = build_parser().parse_args(argv)
     try:
         if args.command == "probe":
