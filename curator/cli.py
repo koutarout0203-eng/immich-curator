@@ -10,7 +10,12 @@ from .clients import ApiError, ImmichClient, PhotoPrismClient
 from .memories import build_memories
 from .reconcile import reconcile
 from .review import create_review_album
-from .trips import build_home_candidates, build_trip_candidates, create_trip_candidate_album
+from .trips import (
+    build_home_candidates,
+    build_trip_candidates,
+    create_trip_candidate_album,
+    normalize_home_periods,
+)
 from .visual import build_visual_memories
 
 
@@ -148,12 +153,20 @@ def run_trip_candidates(
     anchor_gap_hours: float,
     minimum_anchors: int,
     minimum_assets: int,
+    home_periods_path: str | None,
 ) -> int:
     client = _immich_client()
     home = (home_lat, home_lon) if home_lat is not None and home_lon is not None else None
+    home_periods = None
+    if home_periods_path:
+        document = json.loads(Path(home_periods_path).read_text(encoding="utf-8"))
+        if not isinstance(document, dict):
+            raise ValueError("Home period JSON root must be an object")
+        home_periods = normalize_home_periods(document)
     result = build_trip_candidates(
         client.iter_timeline_assets(page_size=page_size),
         home=home,
+        home_periods=home_periods,
         away_km=away_km,
         anchor_gap_hours=anchor_gap_hours,
         minimum_anchors=minimum_anchors,
@@ -241,6 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
     trips.add_argument("--page-size", type=int, default=500)
     trips.add_argument("--home-lat", type=float)
     trips.add_argument("--home-lon", type=float)
+    trips.add_argument("--home-periods")
     trips.add_argument("--away-km", type=float, default=50.0)
     trips.add_argument("--anchor-gap-hours", type=float, default=36.0)
     trips.add_argument("--minimum-anchors", type=int, default=3)
@@ -305,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "trip-candidates":
             if (args.home_lat is None) != (args.home_lon is None):
                 raise ValueError("--home-lat and --home-lon must be provided together")
+            if args.home_periods and args.home_lat is not None:
+                raise ValueError("Use --home-periods or --home-lat/--home-lon, not both")
             if (
                 args.page_size < 1
                 or args.page_size > 1000
@@ -323,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.anchor_gap_hours,
                 args.minimum_anchors,
                 args.minimum_assets,
+                args.home_periods,
             )
         if args.page_size < 1 or args.page_size > 1000:
             raise ValueError("--page-size must be between 1 and 1000")

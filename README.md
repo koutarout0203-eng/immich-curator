@@ -122,11 +122,15 @@ python -m curator home-candidates `
   --window-months 3
 ```
 
+確認した時期別ホーム候補を旅行判定へ入力します。撮影日時点で有効な生活拠点からの距離を使い、履歴にない期間は旅行候補を作りません。
+
 ```powershell
-python -m curator trip-candidates --output data/trips.json
+python -m curator trip-candidates `
+  --output data/trips.json `
+  --home-periods data/home-candidates-3m.json
 ```
 
-ホームは最頻出の約10km GPSセルから推定します。推定が誤っている場合だけ、正しい座標を明示して再生成します。
+互換用として単一ホームも指定できますが、引越しや長期滞在を含むライブラリでは時期別ホームを使用します。
 
 ```powershell
 python -m curator trip-candidates `

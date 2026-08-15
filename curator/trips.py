@@ -236,40 +236,109 @@ def _asset_location_label(asset: dict[str, Any]) -> str | None:
     return label or None
 
 
+def normalize_home_periods(document: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = document.get("homes")
+    if not isinstance(rows, list):
+        rows = document.get("suggested_home_periods")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("Home period JSON must contain homes or suggested_home_periods")
+    result: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError("Home periods must be objects")
+        start_value = row.get("start")
+        end_value = row.get("end")
+        latitude = row.get("latitude")
+        longitude = row.get("longitude")
+        if not isinstance(start_value, str) or not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
+            raise ValueError("Each home period requires start, latitude, and longitude")
+        try:
+            start = datetime.fromisoformat(start_value).date()
+            end = datetime.fromisoformat(end_value).date() if isinstance(end_value, str) else None
+        except ValueError as exc:
+            raise ValueError("Home period dates must use ISO format") from exc
+        if end is not None and end < start:
+            raise ValueError("Home period end must not precede start")
+        result.append(
+            {
+                "period_id": f"home-{index + 1}",
+                "start": start,
+                "end": end,
+                "latitude": float(latitude),
+                "longitude": float(longitude),
+                "radius_km": float(row.get("radius_km", 30)),
+                "location_label": row.get("location_label") or row.get("name"),
+            }
+        )
+    result.sort(key=lambda row: row["start"])
+    for previous, current in zip(result, result[1:]):
+        if previous["end"] is None or previous["end"] >= current["start"]:
+            raise ValueError("Home periods must not overlap")
+    return result
+
+
+def _home_period_at(taken: datetime, periods: list[dict[str, Any]]) -> dict[str, Any] | None:
+    day = taken.date()
+    return next(
+        (
+            period
+            for period in periods
+            if period["start"] <= day and (period["end"] is None or day <= period["end"])
+        ),
+        None,
+    )
+
+
 def build_trip_candidates(
     assets: Iterable[dict[str, Any]],
     *,
     home: tuple[float, float] | None = None,
+    home_periods: list[dict[str, Any]] | None = None,
     away_km: float = 50.0,
     anchor_gap_hours: float = 36.0,
     minimum_anchors: int = 3,
     minimum_assets: int = 10,
 ) -> dict[str, Any]:
     source = [asset for asset in assets if asset_datetime(asset) is not None]
-    resolved_home = home or infer_home(source)
-    if resolved_home is None:
+    if home is not None and home_periods is not None:
+        raise ValueError("Use either one home or time-bounded home periods, not both")
+    resolved_home = home or (None if home_periods is not None else infer_home(source))
+    if resolved_home is None and not home_periods:
         raise ValueError("Cannot detect trips because no GPS coordinates were found")
-    anchors = [
-        asset
-        for asset in source
-        if (coordinates := _coordinates(asset)) is not None
-        and distance_km(resolved_home, coordinates) >= away_km
-    ]
-    anchors.sort(key=lambda asset: asset_datetime(asset) or datetime.min.replace(tzinfo=timezone.utc))
-    groups: list[list[dict[str, Any]]] = []
-    for anchor in anchors:
+    anchor_rows: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
+    for asset in source:
+        coordinates = _coordinates(asset)
+        taken = asset_datetime(asset)
+        if coordinates is None or taken is None:
+            continue
+        period = _home_period_at(taken, home_periods) if home_periods else None
+        if home_periods and period is None:
+            continue
+        active_home = (
+            (period["latitude"], period["longitude"]) if period is not None else resolved_home
+        )
+        threshold = max(away_km, period["radius_km"] if period is not None else 0)
+        if active_home is not None and distance_km(active_home, coordinates) >= threshold:
+            anchor_rows.append((asset, period))
+    anchor_rows.sort(key=lambda row: asset_datetime(row[0]) or datetime.min.replace(tzinfo=timezone.utc))
+    groups: list[list[tuple[dict[str, Any], dict[str, Any] | None]]] = []
+    for anchor, period in anchor_rows:
         taken = asset_datetime(anchor)
-        previous = asset_datetime(groups[-1][-1]) if groups else None
-        if previous is None or taken is None or taken - previous > timedelta(hours=anchor_gap_hours):
+        previous = asset_datetime(groups[-1][-1][0]) if groups else None
+        previous_period = groups[-1][-1][1] if groups else None
+        period_changed = (period or {}).get("period_id") != (previous_period or {}).get("period_id")
+        if previous is None or taken is None or taken - previous > timedelta(hours=anchor_gap_hours) or period_changed:
             groups.append([])
-        groups[-1].append(anchor)
+        groups[-1].append((anchor, period))
 
     candidates: list[dict[str, Any]] = []
     for group in groups:
         if len(group) < minimum_anchors:
             continue
-        first = asset_datetime(group[0])
-        last = asset_datetime(group[-1])
+        group_assets = [row[0] for row in group]
+        group_period = group[0][1]
+        first = asset_datetime(group_assets[0])
+        last = asset_datetime(group_assets[-1])
         if first is None or last is None:
             continue
         start = datetime.combine(first.date(), time.min, tzinfo=first.tzinfo)
@@ -281,7 +350,7 @@ def build_trip_candidates(
         ]
         if len(trip_assets) < minimum_assets:
             continue
-        anchor_times = [asset_datetime(asset) for asset in group]
+        anchor_times = [asset_datetime(asset) for asset in group_assets]
         rows: list[dict[str, Any]] = []
         for asset in sorted(trip_assets, key=lambda item: asset_datetime(item) or start):
             taken = asset_datetime(asset)
@@ -302,7 +371,7 @@ def build_trip_candidates(
                     "original_path": asset.get("originalPath"),
                 }
             )
-        label = _location_label(group)
+        label = _location_label(group_assets)
         seed = f"{start.date()}:{end.date()}:{label}"
         candidates.append(
             {
@@ -311,6 +380,14 @@ def build_trip_candidates(
                 "start": start.isoformat(),
                 "end": end.isoformat(),
                 "anchor_count": len(group),
+                "home_period": {
+                    "period_id": group_period["period_id"],
+                    "location_label": group_period["location_label"],
+                    "latitude": group_period["latitude"],
+                    "longitude": group_period["longitude"],
+                }
+                if group_period is not None
+                else None,
                 "asset_count": len(rows),
                 "gps_asset_count": sum(row["has_gps"] for row in rows),
                 "inferred_asset_count": sum(not row["has_gps"] for row in rows),
@@ -323,7 +400,21 @@ def build_trip_candidates(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "policy": {
             "source": "immich_live_timeline_with_exif",
-            "home": {"latitude": resolved_home[0], "longitude": resolved_home[1], "inferred": home is None},
+            "home": {"latitude": resolved_home[0], "longitude": resolved_home[1], "inferred": home is None}
+            if resolved_home is not None
+            else None,
+            "home_periods": [
+                {
+                    "period_id": period["period_id"],
+                    "start": period["start"].isoformat(),
+                    "end": period["end"].isoformat() if period["end"] else None,
+                    "location_label": period["location_label"],
+                    "latitude": period["latitude"],
+                    "longitude": period["longitude"],
+                    "radius_km": period["radius_km"],
+                }
+                for period in (home_periods or [])
+            ],
             "away_km": away_km,
             "anchor_gap_hours": anchor_gap_hours,
             "minimum_anchors": minimum_anchors,
@@ -334,7 +425,7 @@ def build_trip_candidates(
         "counts": {
             "timeline_assets": len(source),
             "gps_assets": sum(_coordinates(asset) is not None for asset in source),
-            "away_gps_anchors": len(anchors),
+            "away_gps_anchors": len(anchor_rows),
             "trip_candidates": len(candidates),
         },
         "trips": candidates,

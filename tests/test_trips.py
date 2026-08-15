@@ -5,6 +5,7 @@ from curator.trips import (
     build_trip_candidates,
     create_trip_candidate_album,
     distance_km,
+    normalize_home_periods,
 )
 
 
@@ -82,6 +83,44 @@ class TripTests(unittest.TestCase):
         self.assertAlmostEqual(periods[1]["longitude"], 135.5)
         self.assertEqual(periods[0]["location_label"], "Old Home, Japan")
         self.assertFalse(result["policy"]["automatically_applied_to_trips"])
+
+    def test_trips_use_the_home_active_at_capture_time(self):
+        periods = normalize_home_periods(
+            {
+                "suggested_home_periods": [
+                    {"start": "2024-01-01", "end": "2024-03-31", "latitude": 35.0, "longitude": 139.0, "location_label": "Old"},
+                    {"start": "2024-04-01", "end": "2024-12-31", "latitude": 34.7, "longitude": 135.5, "location_label": "New"},
+                ]
+            }
+        )
+        assets = [
+            asset("old-home", "2024-02-01T10:00:00", 35.0, 139.0, "Old"),
+            asset("old-trip", "2024-02-10T10:00:00", 36.2, 138.7, "Away"),
+            asset("new-home", "2024-05-01T10:00:00", 34.7, 135.5, "New"),
+            asset("new-trip", "2024-05-10T10:00:00", 35.36, 138.73, "Fuji"),
+        ]
+        result = build_trip_candidates(
+            assets,
+            home_periods=periods,
+            minimum_anchors=1,
+            minimum_assets=1,
+        )
+        self.assertEqual(result["counts"]["trip_candidates"], 2)
+        self.assertEqual(
+            {trip["home_period"]["location_label"] for trip in result["trips"]},
+            {"Old", "New"},
+        )
+
+    def test_home_periods_must_not_overlap(self):
+        with self.assertRaisesRegex(ValueError, "overlap"):
+            normalize_home_periods(
+                {
+                    "homes": [
+                        {"start": "2024-01-01", "end": "2024-06-30", "latitude": 1, "longitude": 1},
+                        {"start": "2024-06-01", "end": None, "latitude": 2, "longitude": 2},
+                    ]
+                }
+            )
 
     def test_trip_album_is_created_once_and_verified(self):
         trip_data = {
