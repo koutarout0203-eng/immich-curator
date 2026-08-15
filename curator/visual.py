@@ -15,6 +15,7 @@ class ImageMetrics:
     dhash: int
     phash: int
     crop_phashes: tuple[int, ...]
+    scene_signature: tuple[float, ...]
     sharpness: float
     brightness: float
     dark_fraction: float
@@ -90,10 +91,15 @@ def analyze_image(raw: bytes) -> ImageMetrics:
         left = (gray.width - width) // 2
         top = (gray.height - height) // 2
         crop_phashes.append(_phash(gray.crop((left, top, left + width, top + height))))
+    scene_image = image.resize((4, 4), Image.Resampling.LANCZOS)
+    scene_signature = tuple(
+        round(channel / 255.0, 4) for channel in scene_image.tobytes()
+    )
     return ImageMetrics(
         dhash=dhash,
         phash=_phash(gray),
         crop_phashes=tuple(crop_phashes),
+        scene_signature=scene_signature,
         sharpness=round(sharpness, 3),
         brightness=round(brightness, 3),
         dark_fraction=round(dark_fraction, 5),
@@ -110,6 +116,16 @@ def _minimum_phash_distance(left: ImageMetrics, right: ImageMetrics) -> int:
     left_hashes = (left.phash, *left.crop_phashes)
     right_hashes = (right.phash, *right.crop_phashes)
     return min(hamming_distance(a, b) for a in left_hashes for b in right_hashes)
+
+
+def scene_distance(left: ImageMetrics, right: ImageMetrics) -> float:
+    differences = [(a - b) ** 2 for a, b in zip(left.scene_signature, right.scene_signature)]
+    return min(math.sqrt(sum(differences) / max(len(differences), 1)), 1.0)
+
+
+def _people_count(asset: dict[str, Any]) -> int:
+    people = asset.get("people")
+    return len(people) if isinstance(people, list) else 0
 
 
 def _seconds_apart(left: dict[str, Any], right: dict[str, Any]) -> float | None:
@@ -178,16 +194,50 @@ def select_visual_representatives(
                 "type": best.get("type"),
                 "taken_at": asset_datetime(best).isoformat() if asset_datetime(best) else None,
                 "favorite": bool(best.get("isFavorite", False)),
+                "people_count": _people_count(best),
                 "original_path": best.get("originalPath"),
                 "visual": metrics[identifier].json(),
                 "similar_count": len(cluster),
             }
         )
 
-    representatives.sort(
-        key=lambda asset: (asset["favorite"], asset["visual"]["technical_score"]), reverse=True
-    )
-    selected = representatives[:limit]
+    if not representatives:
+        return []
+
+    scores = [asset["visual"]["technical_score"] for asset in representatives]
+    minimum_score = min(scores)
+    score_range = max(max(scores) - minimum_score, 1.0)
+
+    def quality(asset: dict[str, Any]) -> float:
+        return (asset["visual"]["technical_score"] - minimum_score) / score_range
+
+    selected: list[dict[str, Any]] = []
+    remaining = representatives.copy()
+    person_target = min(2, sum(asset["people_count"] > 0 for asset in representatives), limit)
+    while remaining and len(selected) < limit:
+        selected_people = sum(asset["people_count"] > 0 for asset in selected)
+
+        def selection_score(asset: dict[str, Any]) -> tuple[float, float, float]:
+            identifier = asset["id"]
+            if selected:
+                diversity = min(
+                    scene_distance(metrics[identifier], metrics[chosen["id"]]) for chosen in selected
+                )
+            else:
+                diversity = 0.0
+            needs_person = selected_people < person_target and asset["people_count"] > 0
+            score = (
+                (3.0 if needs_person else 0.0)
+                + diversity * 1.8
+                + quality(asset) * 0.45
+                + (0.15 if asset["people_count"] > 0 else 0.0)
+                + (0.05 if asset["favorite"] else 0.0)
+            )
+            return score, diversity, quality(asset)
+
+        chosen = max(remaining, key=selection_score)
+        selected.append(chosen)
+        remaining.remove(chosen)
     selected.sort(key=lambda asset: asset.get("taken_at") or "")
     return selected
 

@@ -88,7 +88,13 @@ class ImmichClient(JsonClient):
                 "POST",
                 f"{self.api_root}/search/metadata",
                 self.headers,
-                {"page": page, "size": page_size, "visibility": "timeline", "withExif": True},
+                {
+                    "page": page,
+                    "size": page_size,
+                    "visibility": "timeline",
+                    "withExif": True,
+                    "withPeople": True,
+                },
             )
             assets = result.get("assets", {}) if isinstance(result, dict) else {}
             items = assets.get("items", []) if isinstance(assets, dict) else []

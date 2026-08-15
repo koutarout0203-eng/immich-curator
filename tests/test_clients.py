@@ -9,6 +9,7 @@ class FakeImmich(ImmichClient):
         self.responses = iter(responses)
 
     def _json_request(self, *args, **kwargs):
+        self.last_request = (args, kwargs)
         return next(self.responses), {}
 
 
@@ -35,6 +36,7 @@ class ClientTests(unittest.TestCase):
             ]
         )
         self.assertEqual([asset["id"] for asset in client.iter_timeline_assets()], ["a", "b"])
+        self.assertTrue(client.last_request[0][3]["withPeople"])
 
     def test_photoprism_header_pagination(self) -> None:
         client = FakePhotoPrism(

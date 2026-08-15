@@ -89,7 +89,9 @@ python -m curator visual-memories --output data/visual-memories.json
 - エッジ分散による相対的な鮮明度
 - 輝度、暗部率、明部率による露出ペナルティ
 - 類似クラスタ内ではFavoriteを最優先し、その次にtechnical scoreを使用
-- 各Eventから最大8枚を選択
+- Immichの既存顔認識結果から各Eventで人物写真を最大2枚優先
+- 4×4の色・明暗構成を比較し、人物・景色・食事など異なる場面が混ざるよう多様性を優先
+- Favoriteは弱い補助点とし、各Eventから最大8枚を選択
 
 元画像は取得せず、previewはメモリ上だけで処理して保存しません。これは美的評価ではなく、ぼけ・極端な露出・近似画像を減らすための実験的な技術スコアです。生成後は、別名のReview Albumとして比較します。
 

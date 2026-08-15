@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -8,6 +9,7 @@ from curator.visual import (
     build_visual_memories,
     hamming_distance,
     select_visual_representatives,
+    scene_distance,
 )
 
 
@@ -86,6 +88,38 @@ class VisualTests(unittest.TestCase):
         metrics = analyze_image(image_bytes("sharp"))
         self.assertEqual(len(metrics.crop_phashes), 2)
         self.assertEqual(len(metrics.json()["crop_phashes"]), 2)
+        self.assertEqual(len(metrics.scene_signature), 48)
+
+    def test_scene_distance_distinguishes_different_images(self) -> None:
+        sharp = analyze_image(image_bytes("sharp"))
+        dark = analyze_image(image_bytes("dark"))
+        self.assertGreater(scene_distance(sharp, dark), 0.2)
+
+    def test_selection_reserves_space_for_people_and_diversity(self) -> None:
+        base = analyze_image(image_bytes("sharp"))
+        images = {
+            "person-a": replace(base, dhash=0, phash=0, crop_phashes=(0, 0)),
+            "person-b": replace(
+                base,
+                dhash=0xFFFFFFFFFFFFFFFF,
+                phash=0xFFFFFFFFFFFFFFFF,
+                crop_phashes=(0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF),
+            ),
+            "scene": replace(
+                analyze_image(image_bytes("dark")),
+                dhash=0xAAAAAAAAAAAAAAAA,
+                phash=0xAAAAAAAAAAAAAAAA,
+                crop_phashes=(0xAAAAAAAAAAAAAAAA, 0xAAAAAAAAAAAAAAAA),
+            ),
+        }
+        assets = [
+            {"id": "person-a", "type": "IMAGE", "localDateTime": "2024-01-01T10:00:00", "people": [{"id": "p1"}]},
+            {"id": "person-b", "type": "IMAGE", "localDateTime": "2024-01-01T11:00:00", "people": [{"id": "p2"}]},
+            {"id": "scene", "type": "IMAGE", "localDateTime": "2024-01-01T12:00:00"},
+        ]
+        selected = select_visual_representatives(assets, images, limit=3, similarity_distance=0, phash_distance=0)
+        self.assertEqual(sum(asset["people_count"] > 0 for asset in selected), 2)
+        self.assertIn("scene", [asset["id"] for asset in selected])
 
     def test_build_visual_memories_uses_thumbnail_loader(self) -> None:
         assets = [
