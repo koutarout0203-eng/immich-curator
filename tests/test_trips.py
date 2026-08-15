@@ -208,6 +208,10 @@ class TripTests(unittest.TestCase):
         second = create_all_trip_candidate_albums(client, data, apply=True, live_timeline_ids={"a", "b"})
         self.assertEqual(first["counts"]["created"], 2)
         self.assertEqual(second["counts"]["skipped_verified"], 2)
+        self.assertEqual(
+            {album["name"] for album in client.albums.values()},
+            {"2024-01-01 - Trip - One", "2024-02-01 - Trip - Two"},
+        )
 
 
 if __name__ == "__main__":

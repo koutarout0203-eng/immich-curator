@@ -531,6 +531,7 @@ def create_all_trip_candidate_albums(
         return {
             "mode": "dry-run",
             "trip_candidates": len(valid_trips),
+            "album_naming": "YYYY-MM-DD - Trip - location",
             "requested_asset_memberships": sum(
                 len(trip.get("assets", [])) for trip in valid_trips if isinstance(trip.get("assets"), list)
             ),
@@ -541,7 +542,12 @@ def create_all_trip_candidate_albums(
     counts = Counter(created=0, skipped_verified=0, conflict=0, failed=0)
     for trip in valid_trips:
         trip_id = trip.get("trip_id")
-        name = trip.get("suggested_album_name")
+        suggested_name = trip.get("suggested_album_name")
+        name = (
+            suggested_name.replace(" - Trip Candidate - ", " - Trip - ", 1)
+            if isinstance(suggested_name, str)
+            else suggested_name
+        )
         rows = trip.get("assets")
         if not isinstance(trip_id, str) or not isinstance(name, str) or not isinstance(rows, list):
             counts["failed"] += 1
@@ -599,5 +605,6 @@ def create_all_trip_candidate_albums(
         "trip_candidates": len(valid_trips),
         "counts": dict(counts),
         "immutable_by_convention": True,
+        "album_naming": "YYYY-MM-DD - Trip - location",
         "results": results,
     }

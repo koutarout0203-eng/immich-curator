@@ -176,7 +176,7 @@ python -m curator trip-album `
 python -m curator trip-albums --input data/trips.json
 ```
 
-確認後に`--apply`を付けます。処理は再実行可能で、同名かつ同一内容のAlbumは`skipped_verified`、同名で内容が異なるAlbumは`conflict`として変更しません。各Albumを作成後に所属Assetを再取得して検証し、1件の失敗で残りを中断しません。
+確認後に`--apply`を付けます。一括作成では候補名の`Trip Candidate`を`Trip`へ変換し、`YYYY-MM-DD - Trip - 場所`の正式名で作成します。処理は再実行可能で、同名かつ同一内容のAlbumは`skipped_verified`、同名で内容が異なるAlbumは`conflict`として変更しません。各Albumを作成後に所属Assetを再取得して検証し、1件の失敗で残りを中断しません。
 
 ```powershell
 python -m curator trip-albums `
