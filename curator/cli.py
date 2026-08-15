@@ -226,7 +226,7 @@ def run_trip_album(input_path: str, trip_id: str, name: str | None, apply: bool)
     return 0
 
 
-def run_trip_albums(input_path: str, apply: bool) -> int:
+def run_trip_albums(input_path: str, apply: bool, add_missing_to_conflicts: bool = False) -> int:
     trip_data = json.loads(Path(input_path).read_text(encoding="utf-8"))
     if not isinstance(trip_data, dict):
         raise ValueError("Trip JSON root must be an object")
@@ -245,6 +245,7 @@ def run_trip_albums(input_path: str, apply: bool) -> int:
         trip_data,
         apply=apply,
         live_timeline_ids=live_timeline_ids,
+        add_missing_to_conflicts=add_missing_to_conflicts,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
@@ -307,6 +308,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     trip_albums.add_argument("--input", default="/data/trips.json")
     trip_albums.add_argument("--apply", action="store_true")
+    trip_albums.add_argument(
+        "--add-missing-to-conflicts",
+        action="store_true",
+        help="with --apply, add only missing assets when an existing album is a strict subset",
+    )
     homes = subparsers.add_parser(
         "home-candidates", help="suggest time-bounded home locations for manual review"
     )
@@ -356,7 +362,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "trip-album":
             return run_trip_album(args.input, args.trip_id.strip(), args.name, args.apply)
         if args.command == "trip-albums":
-            return run_trip_albums(args.input, args.apply)
+            if args.add_missing_to_conflicts and not args.apply:
+                raise ValueError("--add-missing-to-conflicts requires --apply")
+            return run_trip_albums(args.input, args.apply, args.add_missing_to_conflicts)
         if args.command == "home-candidates":
             if args.page_size < 1 or args.page_size > 1000 or args.window_months < 1 or args.window_months > 24:
                 raise ValueError("home candidate page size must be 1..1000 and window months 1..24")

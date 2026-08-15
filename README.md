@@ -184,6 +184,15 @@ python -m curator trip-albums `
   --apply
 ```
 
+既存の正式Albumが新しい候補の厳密な部分集合で、内容を新版へ補完すると明示的に判断した場合だけ、次のオプションで不足Assetを追加できます。既存Albumに新版外のAssetが1件でもある場合は`conflict`のまま変更せず、削除は行いません。
+
+```powershell
+python -m curator trip-albums `
+  --input data/trips.json `
+  --apply `
+  --add-missing-to-conflicts
+```
+
 ## Operational follow-ups (TBD)
 
 ### 過去写真が後から追加された場合

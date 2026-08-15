@@ -504,6 +504,7 @@ def create_all_trip_candidate_albums(
     *,
     apply: bool = False,
     live_timeline_ids: set[str] | None = None,
+    add_missing_to_conflicts: bool = False,
 ) -> dict[str, Any]:
     trips = trip_data.get("trips")
     if not isinstance(trips, list):
@@ -523,7 +524,7 @@ def create_all_trip_candidate_albums(
         }
 
     results: list[dict[str, Any]] = []
-    counts = Counter(created=0, skipped_verified=0, conflict=0, failed=0)
+    counts = Counter(created=0, repaired_additive=0, skipped_verified=0, conflict=0, failed=0)
     for trip in valid_trips:
         trip_id = trip.get("trip_id")
         suggested_name = trip.get("suggested_album_name")
@@ -558,9 +559,39 @@ def create_all_trip_candidate_albums(
                 if present == expected:
                     counts["skipped_verified"] += 1
                     results.append({"trip_id": trip_id, "album_name": name, "album_id": album_id, "status": "skipped_verified", "asset_count": len(expected)})
+                elif add_missing_to_conflicts and present < expected:
+                    missing = sorted(expected - present)
+                    client.add_assets_to_album(album_id, missing)
+                    verified = {
+                        asset.get("id")
+                        for asset in client.iter_album_assets(album_id)
+                        if isinstance(asset, dict) and isinstance(asset.get("id"), str)
+                    }
+                    if verified != expected:
+                        raise ValueError(
+                            f"additive repair verification mismatch: expected {len(expected)}, found {len(verified)}"
+                        )
+                    counts["repaired_additive"] += 1
+                    results.append({
+                        "trip_id": trip_id,
+                        "album_name": name,
+                        "album_id": album_id,
+                        "status": "repaired_additive",
+                        "added_assets": len(missing),
+                        "asset_count": len(verified),
+                    })
                 else:
                     counts["conflict"] += 1
-                    results.append({"trip_id": trip_id, "album_name": name, "album_id": album_id, "status": "conflict", "expected_assets": len(expected), "existing_assets": len(present)})
+                    results.append({
+                        "trip_id": trip_id,
+                        "album_name": name,
+                        "album_id": album_id,
+                        "status": "conflict",
+                        "expected_assets": len(expected),
+                        "existing_assets": len(present),
+                        "missing_assets": len(expected - present),
+                        "extra_assets": len(present - expected),
+                    })
                 continue
             if not asset_ids:
                 raise ValueError("no assets remain in the Live Timeline")
@@ -589,6 +620,7 @@ def create_all_trip_candidate_albums(
         "trip_candidates": len(valid_trips),
         "counts": dict(counts),
         "immutable_by_convention": True,
+        "additive_conflict_repair": add_missing_to_conflicts,
         "album_naming": "YYYY-MM-DD - Trip - location",
         "results": results,
     }

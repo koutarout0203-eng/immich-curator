@@ -42,7 +42,8 @@ class FakeClient:
     def add_assets_to_album(self, album_id, asset_ids):
         self.added = list(asset_ids)
         if album_id in self.albums:
-            self.albums[album_id]["assets"] = list(asset_ids)
+            current = self.albums[album_id]["assets"]
+            current.extend(identifier for identifier in asset_ids if identifier not in current)
 
     def iter_album_assets(self, album_id):
         if album_id in self.albums:
@@ -212,6 +213,48 @@ class TripTests(unittest.TestCase):
             {album["name"] for album in client.albums.values()},
             {"2024-01-01 - Trip - One", "2024-02-01 - Trip - Two"},
         )
+
+    def test_bulk_trip_albums_can_repair_strict_subsets_additively(self):
+        data = {
+            "trips": [{
+                "trip_id": "one",
+                "suggested_album_name": "2024-01-01 - Trip Candidate - One",
+                "assets": [{"id": "a"}, {"id": "b"}],
+            }]
+        }
+        client = FakeClient()
+        album = client.create_album("2024-01-01 - Trip - One", "old")
+        client.add_assets_to_album(album["id"], ["a"])
+        result = create_all_trip_candidate_albums(
+            client,
+            data,
+            apply=True,
+            live_timeline_ids={"a", "b"},
+            add_missing_to_conflicts=True,
+        )
+        self.assertEqual(result["counts"]["repaired_additive"], 1)
+        self.assertEqual(set(client.albums[album["id"]]["assets"]), {"a", "b"})
+
+    def test_bulk_trip_albums_does_not_repair_when_existing_has_extras(self):
+        data = {
+            "trips": [{
+                "trip_id": "one",
+                "suggested_album_name": "2024-01-01 - Trip Candidate - One",
+                "assets": [{"id": "a"}, {"id": "b"}],
+            }]
+        }
+        client = FakeClient()
+        album = client.create_album("2024-01-01 - Trip - One", "old")
+        client.add_assets_to_album(album["id"], ["a", "extra"])
+        result = create_all_trip_candidate_albums(
+            client,
+            data,
+            apply=True,
+            live_timeline_ids={"a", "b", "extra"},
+            add_missing_to_conflicts=True,
+        )
+        self.assertEqual(result["counts"]["conflict"], 1)
+        self.assertEqual(set(client.albums[album["id"]]["assets"]), {"a", "extra"})
 
 
 if __name__ == "__main__":
