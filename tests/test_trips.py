@@ -122,6 +122,24 @@ class TripTests(unittest.TestCase):
                 }
             )
 
+    def test_detected_return_home_splits_adjacent_outings(self):
+        periods = normalize_home_periods(
+            {"homes": [{"start": "2024-01-01", "end": None, "latitude": 35.0, "longitude": 139.0, "name": "Home"}]}
+        )
+        assets = [
+            asset("away-saturday", "2024-05-04T12:00:00", 36.2, 138.7, "Away A"),
+            asset("home-night", "2024-05-04T23:00:00", 35.0, 139.0, "Home"),
+            asset("away-sunday", "2024-05-05T12:00:00", 35.8, 140.5, "Away B"),
+        ]
+        result = build_trip_candidates(
+            assets,
+            home_periods=periods,
+            minimum_anchors=1,
+            minimum_assets=1,
+        )
+        self.assertEqual(result["counts"]["trip_candidates"], 2)
+        self.assertTrue(result["policy"]["splits_on_detected_home_return"])
+
     def test_trip_album_is_created_once_and_verified(self):
         trip_data = {
             "trips": [{
