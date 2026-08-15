@@ -14,6 +14,110 @@ class TripAlbumClient(Protocol):
     def create_album(self, name: str, description: str) -> dict[str, Any]: ...
     def add_assets_to_album(self, album_id: str, asset_ids: list[str]) -> None: ...
     def iter_album_assets(self, album_id: str): ...
+    def delete_album(self, album_id: str) -> None: ...
+
+
+def _formal_trip_name(trip: dict[str, Any]) -> str | None:
+    suggested = trip.get("suggested_album_name")
+    if not isinstance(suggested, str):
+        return None
+    return suggested.replace(" - Trip Candidate - ", " - Trip - ", 1)
+
+
+def prune_stale_trip_albums(
+    client: TripAlbumClient | None,
+    previous_data: dict[str, Any],
+    current_data: dict[str, Any],
+    *,
+    apply: bool = False,
+) -> dict[str, Any]:
+    previous = previous_data.get("trips")
+    current = current_data.get("trips")
+    if not isinstance(previous, list) or not isinstance(current, list):
+        raise ValueError("Both Trip JSON files must contain a trips list")
+    current_rows = [row for row in current if isinstance(row, dict)]
+    current_names = {name for row in current_rows if (name := _formal_trip_name(row))}
+    current_sets = [
+        (
+            row.get("trip_id"),
+            _formal_trip_name(row),
+            {asset.get("id") for asset in row.get("assets", []) if isinstance(asset, dict) and isinstance(asset.get("id"), str)},
+        )
+        for row in current_rows
+        if isinstance(row.get("assets"), list)
+    ]
+    candidates: list[dict[str, Any]] = []
+    for old in (row for row in previous if isinstance(row, dict)):
+        old_name = _formal_trip_name(old)
+        assets = old.get("assets")
+        if not old_name or old_name in current_names or not isinstance(assets, list):
+            continue
+        old_ids = {asset.get("id") for asset in assets if isinstance(asset, dict) and isinstance(asset.get("id"), str)}
+        covers = [entry for entry in current_sets if old_ids and old_ids.issubset(entry[2])]
+        status = "eligible" if len(covers) == 1 else "unsafe"
+        candidates.append({
+            "previous_trip_id": old.get("trip_id"),
+            "album_name": old_name,
+            "asset_count": len(old_ids),
+            "status": status,
+            "covered_by_trip_id": covers[0][0] if len(covers) == 1 else None,
+            "covered_by_album_name": covers[0][1] if len(covers) == 1 else None,
+            "expected_asset_ids": sorted(old_ids),
+        })
+    if not apply:
+        return {
+            "mode": "dry-run",
+            "eligible": sum(item["status"] == "eligible" for item in candidates),
+            "unsafe": sum(item["status"] == "unsafe" for item in candidates),
+            "candidates": [{key: value for key, value in item.items() if key != "expected_asset_ids"} for item in candidates],
+            "writes_to_immich": False,
+        }
+    if client is None:
+        raise ValueError("Client is required for prune apply")
+    results: list[dict[str, Any]] = []
+    counts = Counter(deleted=0, skipped_unsafe=0, not_found=0, conflict=0, failed=0)
+    for candidate in candidates:
+        public = {key: value for key, value in candidate.items() if key != "expected_asset_ids"}
+        if candidate["status"] != "eligible":
+            counts["skipped_unsafe"] += 1
+            results.append({**public, "status": "skipped_unsafe"})
+            continue
+        try:
+            matches = client.find_owned_albums(candidate["album_name"])
+            if not matches:
+                counts["not_found"] += 1
+                results.append({**public, "status": "not_found"})
+                continue
+            if len(matches) != 1 or not isinstance(matches[0].get("id"), str):
+                counts["conflict"] += 1
+                results.append({**public, "status": "conflict", "reason": "album is not uniquely owned"})
+                continue
+            album_id = matches[0]["id"]
+            present = {
+                asset.get("id")
+                for asset in client.iter_album_assets(album_id)
+                if isinstance(asset, dict) and isinstance(asset.get("id"), str)
+            }
+            expected = set(candidate["expected_asset_ids"])
+            if present != expected:
+                counts["conflict"] += 1
+                results.append({
+                    **public,
+                    "status": "conflict",
+                    "reason": "live album membership differs from previous JSON",
+                    "expected_assets": len(expected),
+                    "existing_assets": len(present),
+                })
+                continue
+            client.delete_album(album_id)
+            if client.find_owned_albums(candidate["album_name"]):
+                raise ValueError("album still exists after delete")
+            counts["deleted"] += 1
+            results.append({**public, "album_id": album_id, "status": "deleted"})
+        except (ValueError, RuntimeError) as exc:
+            counts["failed"] += 1
+            results.append({**public, "status": "failed", "error": str(exc)})
+    return {"mode": "apply", "counts": dict(counts), "results": results, "assets_deleted": 0}
 
 
 def _coordinates(asset: dict[str, Any]) -> tuple[float, float] | None:

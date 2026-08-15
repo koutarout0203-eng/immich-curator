@@ -16,6 +16,7 @@ from .trips import (
     create_trip_candidate_album,
     create_all_trip_candidate_albums,
     normalize_home_periods,
+    prune_stale_trip_albums,
 )
 from .visual import build_visual_memories
 
@@ -251,6 +252,16 @@ def run_trip_albums(input_path: str, apply: bool, add_missing_to_conflicts: bool
     return 0
 
 
+def run_trip_albums_prune(previous_path: str, current_path: str, apply: bool) -> int:
+    previous = json.loads(Path(previous_path).read_text(encoding="utf-8"))
+    current = json.loads(Path(current_path).read_text(encoding="utf-8"))
+    if not isinstance(previous, dict) or not isinstance(current, dict):
+        raise ValueError("Trip JSON roots must be objects")
+    result = prune_stale_trip_albums(_immich_client() if apply else None, previous, current, apply=apply)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="immich-curator")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -313,6 +324,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="with --apply, add only missing assets when an existing album is a strict subset",
     )
+    trip_prune = subparsers.add_parser(
+        "trip-albums-prune", help="delete obsolete album containers covered by a newer trip set"
+    )
+    trip_prune.add_argument("--previous", required=True)
+    trip_prune.add_argument("--current", required=True)
+    trip_prune.add_argument("--apply", action="store_true")
     homes = subparsers.add_parser(
         "home-candidates", help="suggest time-bounded home locations for manual review"
     )
@@ -365,6 +382,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.add_missing_to_conflicts and not args.apply:
                 raise ValueError("--add-missing-to-conflicts requires --apply")
             return run_trip_albums(args.input, args.apply, args.add_missing_to_conflicts)
+        if args.command == "trip-albums-prune":
+            return run_trip_albums_prune(args.previous, args.current, args.apply)
         if args.command == "home-candidates":
             if args.page_size < 1 or args.page_size > 1000 or args.window_months < 1 or args.window_months > 24:
                 raise ValueError("home candidate page size must be 1..1000 and window months 1..24")

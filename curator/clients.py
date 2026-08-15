@@ -144,6 +144,13 @@ class ImmichClient(JsonClient):
         if not isinstance(result, list):
             raise ApiError("Unexpected Immich add assets response")
 
+    def delete_album(self, album_id: str) -> None:
+        self._json_request(
+            "DELETE",
+            f"{self.api_root}/albums/{quote(album_id)}",
+            self.headers,
+        )
+
     def iter_album_assets(self, album_id: str, page_size: int = 500) -> Iterator[dict[str, Any]]:
         page = 1
         while True:

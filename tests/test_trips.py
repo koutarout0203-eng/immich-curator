@@ -7,6 +7,7 @@ from curator.trips import (
     create_all_trip_candidate_albums,
     distance_km,
     normalize_home_periods,
+    prune_stale_trip_albums,
 )
 
 
@@ -49,6 +50,9 @@ class FakeClient:
         if album_id in self.albums:
             return iter({"id": identifier} for identifier in self.albums[album_id]["assets"])
         return iter({"id": identifier} for identifier in self.added)
+
+    def delete_album(self, album_id):
+        self.albums.pop(album_id, None)
 
 
 class TripTests(unittest.TestCase):
@@ -255,6 +259,43 @@ class TripTests(unittest.TestCase):
         )
         self.assertEqual(result["counts"]["conflict"], 1)
         self.assertEqual(set(client.albums[album["id"]]["assets"]), {"a", "extra"})
+
+    def test_prune_deletes_only_exact_old_album_covered_by_current_trip(self):
+        previous = {"trips": [{
+            "trip_id": "old",
+            "suggested_album_name": "2024-01-02 - Trip Candidate - Split",
+            "assets": [{"id": "a"}],
+        }]}
+        current = {"trips": [{
+            "trip_id": "new",
+            "suggested_album_name": "2024-01-01 - Trip Candidate - Merged",
+            "assets": [{"id": "a"}, {"id": "b"}],
+        }]}
+        client = FakeClient()
+        album = client.create_album("2024-01-02 - Trip - Split", "old")
+        client.add_assets_to_album(album["id"], ["a"])
+        result = prune_stale_trip_albums(client, previous, current, apply=True)
+        self.assertEqual(result["counts"]["deleted"], 1)
+        self.assertEqual(result["assets_deleted"], 0)
+        self.assertFalse(client.albums)
+
+    def test_prune_refuses_live_album_membership_mismatch(self):
+        previous = {"trips": [{
+            "trip_id": "old",
+            "suggested_album_name": "2024-01-02 - Trip Candidate - Split",
+            "assets": [{"id": "a"}],
+        }]}
+        current = {"trips": [{
+            "trip_id": "new",
+            "suggested_album_name": "2024-01-01 - Trip Candidate - Merged",
+            "assets": [{"id": "a"}, {"id": "b"}],
+        }]}
+        client = FakeClient()
+        album = client.create_album("2024-01-02 - Trip - Split", "old")
+        client.add_assets_to_album(album["id"], ["a", "extra"])
+        result = prune_stale_trip_albums(client, previous, current, apply=True)
+        self.assertEqual(result["counts"]["conflict"], 1)
+        self.assertIn(album["id"], client.albums)
 
 
 if __name__ == "__main__":

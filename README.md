@@ -184,6 +184,19 @@ python -m curator trip-albums `
   --apply
 ```
 
+新版で統合されたため不要になった旧版の正式Trip Albumは、まずdry-runで列挙します。旧Albumの全Assetが新版のちょうど1旅行に包含され、apply時の実Album所属が旧JSONと完全一致する場合だけAlbumコンテナを削除します。写真Assetは削除しません。
+
+```powershell
+python -m curator trip-albums-prune `
+  --previous data/trips-v4.json `
+  --current data/trips-v5.json
+
+python -m curator trip-albums-prune `
+  --previous data/trips-v4.json `
+  --current data/trips-v5.json `
+  --apply
+```
+
 既存の正式Albumが新しい候補の厳密な部分集合で、内容を新版へ補完すると明示的に判断した場合だけ、次のオプションで不足Assetを追加できます。既存Albumに新版外のAssetが1件でもある場合は`conflict`のまま変更せず、削除は行いません。
 
 ```powershell
