@@ -8,5 +8,12 @@ dependencies = ["Pillow>=11,<13"]
 [project.scripts]
 immich-curator = "curator.cli:main"
 
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["curator"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
