@@ -158,6 +158,8 @@ python -m curator trip-album `
 
 作成時にはLive Timelineを再取得し、現在Timeline外のAssetを除外します。同名Albumが存在する場合は更新せずエラーにし、作成済み旅行AlbumをCuratorが自動変更しない規約とします。
 
+旅行Album名は名前順でも日付順に並ぶよう、`YYYY-MM-DD - Trip Candidate - 場所`形式で生成します。確認後の確定名も`YYYY-MM-DD - Trip - 名前`形式を推奨します。
+
 Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 
 ## TrueNAS

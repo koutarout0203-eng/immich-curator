@@ -413,7 +413,7 @@ def build_trip_candidates(
                 "asset_count": len(rows),
                 "gps_asset_count": sum(row["has_gps"] for row in rows),
                 "inferred_asset_count": sum(not row["has_gps"] for row in rows),
-                "suggested_album_name": f"Trip Candidate - {label} - {start.date()}",
+                "suggested_album_name": f"{start.date()} - Trip Candidate - {label}",
                 "assets": rows,
             }
         )

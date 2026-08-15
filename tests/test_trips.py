@@ -144,7 +144,7 @@ class TripTests(unittest.TestCase):
         trip_data = {
             "trips": [{
                 "trip_id": "trip-1",
-                "suggested_album_name": "Trip Candidate - Test - 2024-01-01",
+                "suggested_album_name": "2024-01-01 - Trip Candidate - Test",
                 "assets": [{"id": "a"}, {"id": "b"}],
             }]
         }
