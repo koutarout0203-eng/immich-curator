@@ -52,6 +52,143 @@ def infer_home(assets: Iterable[dict[str, Any]]) -> tuple[float, float] | None:
     return cells.most_common(1)[0][0] if cells else None
 
 
+def _month_index(value: datetime) -> int:
+    return value.year * 12 + value.month - 1
+
+
+def _month_start(index: int) -> datetime:
+    return datetime(index // 12, index % 12 + 1, 1, tzinfo=timezone.utc)
+
+
+def build_home_candidates(
+    assets: Iterable[dict[str, Any]],
+    *,
+    window_months: int = 6,
+    cell_degrees: float = 0.1,
+    alternatives: int = 3,
+) -> dict[str, Any]:
+    if window_months < 1 or cell_degrees <= 0 or alternatives < 1:
+        raise ValueError("Home candidate policy values must be positive")
+    geotagged = [
+        asset
+        for asset in assets
+        if asset_datetime(asset) is not None and _coordinates(asset) is not None
+    ]
+    if not geotagged:
+        raise ValueError("Cannot infer home periods because no GPS coordinates were found")
+    dated = [(asset_datetime(asset), asset, _coordinates(asset)) for asset in geotagged]
+    valid = [(taken, asset, coordinates) for taken, asset, coordinates in dated if taken and coordinates]
+    first_month = min(_month_index(taken) for taken, _, _ in valid)
+    last_month = max(_month_index(taken) for taken, _, _ in valid)
+    first_window = first_month - (first_month % window_months)
+    windows: list[dict[str, Any]] = []
+    for window_start in range(first_window, last_month + 1, window_months):
+        window_end = window_start + window_months
+        stats: dict[tuple[float, float], dict[str, set[Any]]] = {}
+        for taken, _, coordinates in valid:
+            if not (window_start <= _month_index(taken) < window_end):
+                continue
+            latitude, longitude = coordinates
+            cell = (
+                round(latitude / cell_degrees) * cell_degrees,
+                round(longitude / cell_degrees) * cell_degrees,
+            )
+            row = stats.setdefault(cell, {"days": set(), "months": set(), "night_days": set()})
+            row["days"].add(taken.date())
+            row["months"].add((taken.year, taken.month))
+            if taken.hour < 7 or taken.hour >= 20:
+                row["night_days"].add(taken.date())
+        ranked: list[dict[str, Any]] = []
+        for (latitude, longitude), row in stats.items():
+            active_days = len(row["days"])
+            active_months = len(row["months"])
+            night_days = len(row["night_days"])
+            score = active_days + active_months * 2.0 + night_days * 1.5
+            ranked.append(
+                {
+                    "latitude": round(latitude, 4),
+                    "longitude": round(longitude, 4),
+                    "active_days": active_days,
+                    "active_months": active_months,
+                    "night_days": night_days,
+                    "score": round(score, 2),
+                }
+            )
+        ranked.sort(key=lambda row: (row["score"], row["night_days"], row["active_days"]), reverse=True)
+        if not ranked:
+            continue
+        best = ranked[0]
+        runner_up = ranked[1]["score"] if len(ranked) > 1 else 0.0
+        margin = best["score"] / max(runner_up, 1.0)
+        confidence = (
+            "high"
+            if best["active_days"] >= 12 and best["active_months"] >= 3 and margin >= 1.35
+            else "medium"
+            if best["active_days"] >= 5 and best["active_months"] >= 2 and margin >= 1.1
+            else "low"
+        )
+        start = _month_start(window_start)
+        end = _month_start(min(window_end, last_month + 1)) - timedelta(microseconds=1)
+        windows.append(
+            {
+                "start": start.date().isoformat(),
+                "end": end.date().isoformat(),
+                "primary": {**best, "confidence": confidence, "margin_over_second": round(margin, 2)},
+                "alternatives": ranked[1:alternatives],
+            }
+        )
+
+    periods: list[dict[str, Any]] = []
+    for window in windows:
+        primary = window["primary"]
+        coordinates = (primary["latitude"], primary["longitude"])
+        previous_coordinates = (
+            (periods[-1]["latitude"], periods[-1]["longitude"]) if periods else None
+        )
+        if previous_coordinates and distance_km(previous_coordinates, coordinates) <= 25:
+            period = periods[-1]
+            period["end"] = window["end"]
+            period["active_days"] += primary["active_days"]
+            period["active_months"] += primary["active_months"]
+            period["night_days"] += primary["night_days"]
+            period["window_count"] += 1
+            if primary["confidence"] == "low":
+                period["confidence"] = "low"
+            elif primary["confidence"] == "medium" and period["confidence"] == "high":
+                period["confidence"] = "medium"
+        else:
+            periods.append(
+                {
+                    "start": window["start"],
+                    "end": window["end"],
+                    "latitude": primary["latitude"],
+                    "longitude": primary["longitude"],
+                    "radius_km": 30,
+                    "active_days": primary["active_days"],
+                    "active_months": primary["active_months"],
+                    "night_days": primary["night_days"],
+                    "window_count": 1,
+                    "confidence": primary["confidence"],
+                }
+            )
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "policy": {
+            "window_months": window_months,
+            "cell_degrees": cell_degrees,
+            "ranking": "unique_days + active_months*2 + night_days*1.5",
+            "automatically_applied_to_trips": False,
+        },
+        "counts": {
+            "gps_assets": len(geotagged),
+            "windows": len(windows),
+            "suggested_home_periods": len(periods),
+        },
+        "suggested_home_periods": periods,
+        "windows": windows,
+    }
+
+
 def _location_label(anchors: list[dict[str, Any]]) -> str:
     labels: list[str] = []
     for asset in anchors:

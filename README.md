@@ -106,6 +106,14 @@ python -m curator review-album `
 
 GPS付きTimeline写真から推定ホームより50km以上離れた位置アンカーを抽出し、36時間以内に連続するアンカーを旅行候補としてまとめます。同じ旅行日内のGPSなしカメラ写真も含めますが、写真のEXIF・GPS・日時は変更しません。
 
+旅行判定の前に、半年ごとのホーム候補を生成します。
+
+```powershell
+python -m curator home-candidates --output data/home-candidates.json
+```
+
+各約10kmセルを、写真枚数ではなく異なる撮影日数、登場月数、夜間・早朝の撮影日数で順位付けします。半年ごとの上位候補と代替候補を残し、25km以内で連続する首位候補を時期別の居住地候補へ統合します。旅行先で同日に大量撮影しても1撮影日として数えます。結果は旅行判定へ自動適用されないため、引越し時期と場所を人が確認します。
+
 ```powershell
 python -m curator trip-candidates --output data/trips.json
 ```

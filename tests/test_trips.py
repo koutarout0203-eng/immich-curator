@@ -1,6 +1,11 @@
 import unittest
 
-from curator.trips import build_trip_candidates, create_trip_candidate_album, distance_km
+from curator.trips import (
+    build_home_candidates,
+    build_trip_candidates,
+    create_trip_candidate_album,
+    distance_km,
+)
 
 
 def asset(identifier, taken, latitude=None, longitude=None, city=None):
@@ -59,6 +64,23 @@ class TripTests(unittest.TestCase):
         rows = {row["id"]: row for row in trip["assets"]}
         self.assertEqual(rows["camera-near"]["inference_confidence"], "high")
         self.assertEqual(rows["camera-mid"]["inference_confidence"], "medium")
+
+    def test_home_candidates_use_recurring_days_and_detect_a_move(self):
+        assets = []
+        for month in range(1, 7):
+            assets.append(asset(f"old-{month}-a", f"2024-{month:02d}-05T21:00:00", 35.0, 139.0, "Old Home"))
+            assets.append(asset(f"old-{month}-b", f"2024-{month:02d}-20T08:00:00", 35.0, 139.0, "Old Home"))
+        for month in range(7, 13):
+            assets.append(asset(f"new-{month}-a", f"2024-{month:02d}-05T21:00:00", 34.7, 135.5, "New Home"))
+            assets.append(asset(f"new-{month}-b", f"2024-{month:02d}-20T08:00:00", 34.7, 135.5, "New Home"))
+        for index in range(100):
+            assets.append(asset(f"trip-{index}", "2024-03-10T12:00:00", 33.0, 130.5, "Trip"))
+        result = build_home_candidates(assets, window_months=6)
+        self.assertEqual(result["counts"]["suggested_home_periods"], 2)
+        periods = result["suggested_home_periods"]
+        self.assertAlmostEqual(periods[0]["latitude"], 35.0)
+        self.assertAlmostEqual(periods[1]["longitude"], 135.5)
+        self.assertFalse(result["policy"]["automatically_applied_to_trips"])
 
     def test_trip_album_is_created_once_and_verified(self):
         trip_data = {

@@ -10,7 +10,7 @@ from .clients import ApiError, ImmichClient, PhotoPrismClient
 from .memories import build_memories
 from .reconcile import reconcile
 from .review import create_review_album
-from .trips import build_trip_candidates, create_trip_candidate_album
+from .trips import build_home_candidates, build_trip_candidates, create_trip_candidate_album
 from .visual import build_visual_memories
 
 
@@ -165,6 +165,18 @@ def run_trip_candidates(
     return 0
 
 
+def run_home_candidates(output: str, page_size: int, window_months: int) -> int:
+    client = _immich_client()
+    result = build_home_candidates(
+        client.iter_timeline_assets(page_size=page_size),
+        window_months=window_months,
+    )
+    output_path = Path(output)
+    _write_json_atomic(output_path, result)
+    print(json.dumps({"output": str(output_path), "counts": result["counts"]}, ensure_ascii=False))
+    return 0
+
+
 def run_trip_album(input_path: str, trip_id: str, apply: bool) -> int:
     trip_data = json.loads(Path(input_path).read_text(encoding="utf-8"))
     if not isinstance(trip_data, dict):
@@ -239,6 +251,12 @@ def build_parser() -> argparse.ArgumentParser:
     trip_album.add_argument("--input", default="/data/trips.json")
     trip_album.add_argument("--trip-id", required=True)
     trip_album.add_argument("--apply", action="store_true")
+    homes = subparsers.add_parser(
+        "home-candidates", help="suggest time-bounded home locations for manual review"
+    )
+    homes.add_argument("--output", default="/data/home-candidates.json")
+    homes.add_argument("--page-size", type=int, default=500)
+    homes.add_argument("--window-months", type=int, default=6)
     return parser
 
 
@@ -280,6 +298,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.command == "trip-album":
             return run_trip_album(args.input, args.trip_id.strip(), args.apply)
+        if args.command == "home-candidates":
+            if args.page_size < 1 or args.page_size > 1000 or args.window_months < 1 or args.window_months > 24:
+                raise ValueError("home candidate page size must be 1..1000 and window months 1..24")
+            return run_home_candidates(args.output, args.page_size, args.window_months)
         if args.command == "trip-candidates":
             if (args.home_lat is None) != (args.home_lon is None):
                 raise ValueError("--home-lat and --home-lon must be provided together")
