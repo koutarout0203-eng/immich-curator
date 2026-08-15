@@ -151,7 +151,7 @@ class TripTests(unittest.TestCase):
                 }
             )
 
-    def test_detected_return_home_splits_adjacent_outings(self):
+    def test_single_home_photo_does_not_split_a_continuing_trip(self):
         periods = normalize_home_periods(
             {"homes": [{"start": "2024-01-01", "end": None, "latitude": 35.0, "longitude": 139.0, "name": "Home"}]}
         )
@@ -166,8 +166,8 @@ class TripTests(unittest.TestCase):
             minimum_anchors=1,
             minimum_assets=1,
         )
-        self.assertEqual(result["counts"]["trip_candidates"], 2)
-        self.assertTrue(result["policy"]["splits_on_detected_home_return"])
+        self.assertEqual(result["counts"]["trip_candidates"], 1)
+        self.assertFalse(result["policy"]["splits_on_detected_home_return"])
 
     def test_trip_album_is_created_once_and_verified(self):
         trip_data = {

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import math
-from bisect import bisect_left, bisect_right
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Protocol
@@ -308,7 +307,6 @@ def build_trip_candidates(
     if resolved_home is None and not home_periods:
         raise ValueError("Cannot detect trips because no GPS coordinates were found")
     anchor_rows: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
-    home_visits: dict[str, list[datetime]] = {}
     for asset in source:
         coordinates = _coordinates(asset)
         taken = asset_datetime(asset)
@@ -321,15 +319,9 @@ def build_trip_candidates(
             (period["latitude"], period["longitude"]) if period is not None else resolved_home
         )
         threshold = max(away_km, period["radius_km"] if period is not None else 0)
-        home_key = period["period_id"] if period is not None else "single-home"
         distance = distance_km(active_home, coordinates) if active_home is not None else None
-        home_radius = period["radius_km"] if period is not None else min(30.0, away_km)
-        if distance is not None and distance <= home_radius:
-            home_visits.setdefault(home_key, []).append(taken)
         if distance is not None and distance >= threshold:
             anchor_rows.append((asset, period))
-    for visits in home_visits.values():
-        visits.sort()
     anchor_rows.sort(key=lambda row: asset_datetime(row[0]) or datetime.min.replace(tzinfo=timezone.utc))
     groups: list[list[tuple[dict[str, Any], dict[str, Any] | None]]] = []
     for anchor, period in anchor_rows:
@@ -337,19 +329,11 @@ def build_trip_candidates(
         previous = asset_datetime(groups[-1][-1][0]) if groups else None
         previous_period = groups[-1][-1][1] if groups else None
         period_changed = (period or {}).get("period_id") != (previous_period or {}).get("period_id")
-        home_key = period["period_id"] if period is not None else "single-home"
-        visits = home_visits.get(home_key, [])
-        returned_home = (
-            previous is not None
-            and taken is not None
-            and bisect_right(visits, previous) < bisect_left(visits, taken)
-        )
         if (
             previous is None
             or taken is None
             or taken - previous > timedelta(hours=anchor_gap_hours)
             or period_changed
-            or returned_home
         ):
             groups.append([])
         groups[-1].append((anchor, period))
@@ -442,7 +426,7 @@ def build_trip_candidates(
             ],
             "away_km": away_km,
             "anchor_gap_hours": anchor_gap_hours,
-            "splits_on_detected_home_return": True,
+            "splits_on_detected_home_return": False,
             "minimum_anchors": minimum_anchors,
             "minimum_assets": minimum_assets,
             "trip_padding_hours": trip_padding_hours,
