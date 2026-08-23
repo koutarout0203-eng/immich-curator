@@ -257,6 +257,7 @@ python -m curator trip-albums `
 - Album、写真Asset、メタデータを自動削除しません。
 - 30日より古く、同名の既存Albumもない候補は、過去写真追加による旅行名変更や結合の可能性があるため自動作成せず`historical_review`として記録します。日数は`--historical-review-days`で変更できます。
 - `/data/trips-current.json`と`/data/trip-sync-latest.json`を原子的に更新し、各実行結果を`/data/history/`へ保存します。
+- 同じ週次実行で`/data/visual-memories.json`とLifeOS向け`/data/trip-manifest.json`も更新します。preview画像は保存しません。
 - `/data/trip-worker.lock`で多重実行を防止します。異常終了後12時間を超えたlockだけを次回起動時に回収します。
 
 確認済みの`home-candidates-3m.json`を、TrueNASの永続化先へ`home-periods.json`として配置してください。秘密情報は含みません。
@@ -274,6 +275,36 @@ python -m curator trip-worker `
 TrueNASでは`compose.example.yaml`のように`/data/home-periods.json`を使用します。スケジュールは`--weekday`（月曜=0、日曜=6）と`--time HH:MM`、タイムゾーンは`TZ`または`--timezone`で変更できます。
 
 コンテナのrestart policyは`unless-stopped`とし、TrueNAS再起動後にもスケジューラを復帰させます。API失敗は実行結果へ記録して常駐ループを継続し、次週に再試行します。
+
+## Suggestion review app
+
+`suggestions-app`は`visual-memories.json`を写真中心のカードとして表示します。候補ごとに「Immichで確認」で専用Review Albumを作成するか、「あとで見る」として保留できます。判断結果は`/data/suggestion-feedback.json`へ原子的に保存します。
+
+```powershell
+$env:CURATOR_UI_USERNAME = 'curator'
+$env:CURATOR_UI_PASSWORD = 'set-a-long-password'
+$env:IMMICH_PUBLIC_URL = 'http://192.168.14.37:2283'
+python -m curator suggestions-app `
+  --input data/visual-memories.json `
+  --feedback data/suggestion-feedback.json `
+  --host 0.0.0.0 `
+  --port 20810
+```
+
+非loopbackへbindする場合はBasic認証が必須です。TrueNASでは`compose.example.yaml`のworkerとwebを同じ永続`/data`へ接続します。一般インターネットへ公開せず、LANまたはTailnet内だけで使用してください。
+
+## LifeOS Trip Manifest
+
+週次workerは`/data/trip-manifest.json`を生成します。schema version、Trip ID、期間、代表地点、枚数、cover Asset ID、Immich Album ID・URLだけを含み、API keyや写真binaryは含みません。
+
+```powershell
+python -m curator trip-manifest `
+  --input data/trips-v5.json `
+  --output data/trip-manifest.json `
+  --immich-url http://192.168.14.37:2283
+```
+
+LifeOSはこのManifestを読み取り専用で同期し、Travel PWAからImmich Albumを開く導線に利用します。Immich Albumと旅行計画を相互上書きせず、削除も伝播しません。
 
 Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 

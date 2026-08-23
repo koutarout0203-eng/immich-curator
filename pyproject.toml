@@ -13,7 +13,10 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["curator"]
+packages = ["curator", "curator.web"]
+
+[tool.setuptools.package-data]
+curator = ["web/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

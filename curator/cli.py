@@ -12,6 +12,7 @@ from typing import Any
 from .clients import ApiError, ImmichClient, PhotoPrismClient
 from .automation import exclusive_run, load_timezone, next_weekly_run, run_trip_sync, write_json_atomic
 from .memories import build_memories
+from .manifest import build_trip_manifest
 from .reconcile import reconcile
 from .review import create_review_album
 from .trips import (
@@ -23,6 +24,7 @@ from .trips import (
     prune_stale_trip_albums,
 )
 from .visual import build_visual_memories
+from .webapp import SuggestionApplication, serve_suggestions
 
 
 def _required(name: str) -> str:
@@ -264,23 +266,30 @@ def run_trip_albums_prune(previous_path: str, current_path: str, apply: bool) ->
 
 
 def _run_trip_worker_once(
-    home_periods: str, data_dir: str, settle_hours: float, historical_review_days: float
+    home_periods: str,
+    data_dir: str,
+    settle_hours: float,
+    historical_review_days: float,
+    immich_public_url: str,
 ) -> dict[str, Any]:
     root = Path(data_dir)
     document = json.loads(Path(home_periods).read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise ValueError("Home period JSON root must be an object")
     with exclusive_run(root / "trip-worker.lock"):
-        candidates, result = run_trip_sync(
+        candidates, result, manifest, suggestions = run_trip_sync(
             _immich_client(),
             home_periods_document=document,
             now=datetime.now(timezone.utc),
             settle_hours=settle_hours,
             historical_review_days=historical_review_days,
+            immich_public_url=immich_public_url,
         )
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         write_json_atomic(root / "trips-current.json", candidates)
         write_json_atomic(root / "trip-sync-latest.json", result)
+        write_json_atomic(root / "trip-manifest.json", manifest)
+        write_json_atomic(root / "visual-memories.json", suggestions)
         write_json_atomic(root / "history" / f"trip-sync-{stamp}.json", result)
         return result
 
@@ -294,6 +303,7 @@ def run_trip_worker(
     weekday: int,
     schedule_time: str,
     historical_review_days: float,
+    immich_public_url: str,
 ) -> int:
     if settle_hours < 0 or settle_hours > 720:
         raise ValueError("settle hours must be 0..720")
@@ -307,7 +317,7 @@ def run_trip_worker(
         raise ValueError("schedule time must use HH:MM")
     zone = load_timezone(timezone_name)
     if once:
-        result = _run_trip_worker_once(home_periods, data_dir, settle_hours, historical_review_days)
+        result = _run_trip_worker_once(home_periods, data_dir, settle_hours, historical_review_days, immich_public_url)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     while True:
@@ -316,10 +326,41 @@ def run_trip_worker(
         print(json.dumps({"status": "waiting", "next_run": next_run.isoformat()}, ensure_ascii=False), flush=True)
         time.sleep(max(1, (next_run - now).total_seconds()))
         try:
-            result = _run_trip_worker_once(home_periods, data_dir, settle_hours, historical_review_days)
+            result = _run_trip_worker_once(home_periods, data_dir, settle_hours, historical_review_days, immich_public_url)
             print(json.dumps({"status": "completed", "counts": result.get("counts")}, ensure_ascii=False), flush=True)
         except (ApiError, OSError, RuntimeError, ValueError) as exc:
             print(json.dumps({"status": "failed", "error": str(exc)}, ensure_ascii=False), file=sys.stderr, flush=True)
+
+
+def run_suggestions_app(
+    input_path: str,
+    feedback_path: str,
+    host: str,
+    port: int,
+    username: str | None,
+    password: str | None,
+    immich_public_url: str,
+) -> int:
+    if port < 1 or port > 65535:
+        raise ValueError("port must be 1..65535")
+    app = SuggestionApplication(
+        _immich_client(),
+        Path(input_path),
+        Path(feedback_path),
+        immich_public_url=immich_public_url,
+    )
+    serve_suggestions(app, host=host, port=port, username=username, password=password)
+    return 0
+
+
+def run_trip_manifest(input_path: str, output_path: str, immich_public_url: str) -> int:
+    document = json.loads(Path(input_path).read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("Trip JSON root must be an object")
+    result = build_trip_manifest(_immich_client(), document, immich_public_url=immich_public_url)
+    write_json_atomic(Path(output_path), result)
+    print(json.dumps({"output": output_path, "counts": result["counts"]}, ensure_ascii=False))
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -401,6 +442,23 @@ def build_parser() -> argparse.ArgumentParser:
     trip_worker.add_argument("--timezone", default=os.environ.get("TZ", "Asia/Tokyo"))
     trip_worker.add_argument("--weekday", type=int, default=6, help="Monday=0, Sunday=6")
     trip_worker.add_argument("--time", default="06:00")
+    trip_worker.add_argument("--immich-url", default=os.environ.get("IMMICH_PUBLIC_URL", ""))
+    suggestions_app = subparsers.add_parser(
+        "suggestions-app", help="serve the authenticated memory suggestion review app"
+    )
+    suggestions_app.add_argument("--input", default="/data/visual-memories.json")
+    suggestions_app.add_argument("--feedback", default="/data/suggestion-feedback.json")
+    suggestions_app.add_argument("--host", default="127.0.0.1")
+    suggestions_app.add_argument("--port", type=int, default=20810)
+    suggestions_app.add_argument("--username", default=os.environ.get("CURATOR_UI_USERNAME"))
+    suggestions_app.add_argument("--password", default=os.environ.get("CURATOR_UI_PASSWORD"))
+    suggestions_app.add_argument("--immich-url", default=os.environ.get("IMMICH_PUBLIC_URL", ""))
+    trip_manifest = subparsers.add_parser(
+        "trip-manifest", help="export a versioned LifeOS-safe trip manifest"
+    )
+    trip_manifest.add_argument("--input", default="/data/trips-current.json")
+    trip_manifest.add_argument("--output", default="/data/trip-manifest.json")
+    trip_manifest.add_argument("--immich-url", default=os.environ.get("IMMICH_PUBLIC_URL", ""))
     homes = subparsers.add_parser(
         "home-candidates", help="suggest time-bounded home locations for manual review"
     )
@@ -465,7 +523,20 @@ def main(argv: list[str] | None = None) -> int:
                 args.weekday,
                 args.time,
                 args.historical_review_days,
+                args.immich_url,
             )
+        if args.command == "suggestions-app":
+            return run_suggestions_app(
+                args.input,
+                args.feedback,
+                args.host,
+                args.port,
+                args.username,
+                args.password,
+                args.immich_url,
+            )
+        if args.command == "trip-manifest":
+            return run_trip_manifest(args.input, args.output, args.immich_url)
         if args.command == "home-candidates":
             if args.page_size < 1 or args.page_size > 1000 or args.window_months < 1 or args.window_months > 24:
                 raise ValueError("home candidate page size must be 1..1000 and window months 1..24")

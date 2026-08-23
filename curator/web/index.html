@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Curator Suggestions</title>
+  <style>
+    :root { font: 100%/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; color-scheme: light dark; --bg:#f2f2f7; --surface:rgba(255,255,255,.76); --text:#161617; --muted:#68686f; --accent:#087aff; --border:rgba(60,60,67,.18); --shadow:0 18px 50px rgba(0,0,0,.12); }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); min-height:100vh; }
+    header { position:sticky; top:0; z-index:3; padding:max(1rem,env(safe-area-inset-top)) clamp(1rem,4vw,3rem) 1rem; background:var(--surface); backdrop-filter:blur(24px) saturate(180%); }
+    header div { max-width:82rem; margin:auto; display:flex; justify-content:space-between; gap:1rem; align-items:end; }
+    h1 { margin:0; font-size:clamp(1.8rem,4vw,3.4rem); line-height:1.02; letter-spacing:-.035em; }
+    .summary,.meta { color:var(--muted); }
+    main { max-width:82rem; margin:auto; padding:clamp(1rem,4vw,3rem); display:grid; gap:1.5rem; }
+    article { overflow:hidden; border:1px solid var(--border); border-radius:1.55rem; background:var(--surface); box-shadow:var(--shadow); }
+    .photos { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(11rem,1fr); overflow-x:auto; overscroll-behavior-inline:contain; scroll-snap-type:x proximity; background:#111; }
+    .photos img { width:100%; height:clamp(14rem,32vw,26rem); object-fit:cover; scroll-snap-align:start; }
+    .content { padding:1.15rem 1.25rem 1.3rem; display:grid; gap:.9rem; }
+    h2 { margin:0; font-size:clamp(1.25rem,2vw,1.7rem); letter-spacing:-.018em; }
+    .actions { display:flex; flex-wrap:wrap; gap:.65rem; }
+    button,a.button { border:0; border-radius:999px; padding:.72rem 1rem; font:inherit; font-weight:650; text-decoration:none; cursor:pointer; color:white; background:var(--accent); transition:transform .12s ease,opacity .2s ease; }
+    button.secondary { color:var(--text); background:rgba(120,120,128,.14); }
+    button:active,a.button:active { transform:scale(.97); }
+    button:disabled { opacity:.48; cursor:progress; }
+    .status { min-height:1.5em; color:var(--muted); }
+    .empty { text-align:center; padding:5rem 1rem; color:var(--muted); }
+    @media (prefers-color-scheme:dark) { :root { --bg:#000; --surface:rgba(30,30,32,.78); --text:#f5f5f7; --muted:#aaaab2; --border:rgba(255,255,255,.14); --shadow:0 18px 50px rgba(0,0,0,.5); } }
+    @media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto!important; transition:opacity .15s linear!important; } button:active,a.button:active { transform:none; } }
+    @media (prefers-reduced-transparency:reduce) { header,article { backdrop-filter:none; background:var(--bg); } }
+    @media (prefers-contrast:more) { article { border:2px solid currentColor; } button.secondary { outline:2px solid currentColor; } }
+  </style>
+</head>
+<body>
+  <header><div><section><div class="summary">Immich Curator</div><h1>思い出の候補</h1></section><div id="count" class="summary">読み込み中…</div></div></header>
+  <main id="list" aria-live="polite"><div class="empty">候補を読み込んでいます</div></main>
+  <script>
+    const list=document.querySelector('#list'), count=document.querySelector('#count');
+    const fmt=v=>new Intl.DateTimeFormat('ja-JP',{dateStyle:'long'}).format(new Date(v));
+    const post=async(path,event_id)=>{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_id})});const j=await r.json();if(!r.ok)throw new Error(j.error||'処理に失敗しました');return j};
+    function card(m){const a=document.createElement('article');const status=m.feedback?.status||'pending';a.innerHTML=`<div class="photos">${(m.assets||[]).map(x=>`<img loading="lazy" alt="${fmt(x.taken_at||m.start)}の候補写真" src="/api/thumbnail/${encodeURIComponent(x.id)}">`).join('')}</div><div class="content"><div><div class="meta">${fmt(m.start)} · ${m.asset_count||m.assets?.length||0}枚から選定</div><h2>${m.location?.city||'思い出のひととき'}</h2></div><div class="actions"><button class="review">Immichで確認</button><button class="secondary hold">あとで見る</button></div><div class="status" role="status">${status==='held'?'あとで見る候補です':status==='review_album_created'?'Review Albumを作成済み':''}</div></div>`;
+      const review=a.querySelector('.review'),hold=a.querySelector('.hold'),out=a.querySelector('.status');
+      review.onclick=async()=>{review.disabled=true;out.textContent='Review Albumを作成中…';try{const r=await post('/api/review',m.event_id);out.textContent='作成しました';if(r.immich_url){const link=document.createElement('a');link.className='button';link.href=r.immich_url;link.target='_blank';link.rel='noopener';link.textContent='Immichを開く';review.replaceWith(link)}}catch(e){out.textContent=e.message;review.disabled=false}};
+      hold.onclick=async()=>{hold.disabled=true;try{await post('/api/hold',m.event_id);out.textContent='あとで見る候補にしました'}catch(e){out.textContent=e.message;hold.disabled=false}};return a}
+    fetch('/api/suggestions').then(r=>r.json()).then(d=>{list.replaceChildren(...d.memories.map(card));count.textContent=`${d.memories.length}件`;if(!d.memories.length)list.innerHTML='<div class="empty">現在、候補はありません</div>'}).catch(e=>{list.innerHTML=`<div class="empty">${e.message}</div>`;count.textContent='読み込み失敗'});
+  </script>
+</body>
+</html>

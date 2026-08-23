@@ -1,13 +1,14 @@
 services:
-  curator:
+  curator-worker:
     image: ghcr.io/OWNER/immich-curator:v0.3.0
-    container_name: immich-curator
+    container_name: immich-curator-worker
     restart: unless-stopped
     environment:
       IMMICH_BASE_URL: "http://immich.example.local:2283"
       IMMICH_API_KEY: "REPLACE_IN_TRUENAS_UI"
       API_TIMEOUT_SECONDS: "30"
       TZ: "Asia/Tokyo"
+      IMMICH_PUBLIC_URL: "http://immich.example.local:2283"
     command:
       - trip-worker
       - --home-periods
@@ -22,6 +23,40 @@ services:
       - "6"
       - --time
       - "06:00"
+    volumes:
+      - /mnt/POOL/apps/immich-curator:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+
+  curator-web:
+    image: ghcr.io/OWNER/immich-curator:v0.3.0
+    container_name: immich-curator-web
+    restart: unless-stopped
+    environment:
+      IMMICH_BASE_URL: "http://immich.example.local:2283"
+      IMMICH_PUBLIC_URL: "http://immich.example.local:2283"
+      IMMICH_API_KEY: "REPLACE_IN_TRUENAS_UI"
+      CURATOR_UI_USERNAME: "REPLACE_IN_TRUENAS_UI"
+      CURATOR_UI_PASSWORD: "REPLACE_IN_TRUENAS_UI"
+      API_TIMEOUT_SECONDS: "30"
+      TZ: "Asia/Tokyo"
+    command:
+      - suggestions-app
+      - --input
+      - /data/visual-memories.json
+      - --feedback
+      - /data/suggestion-feedback.json
+      - --host
+      - 0.0.0.0
+      - --port
+      - "20810"
+    ports:
+      - "20810:20810"
     volumes:
       - /mnt/POOL/apps/immich-curator:/data
     security_opt:

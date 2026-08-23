@@ -14,6 +14,8 @@ from .trips import (
     create_all_trip_candidate_albums,
     normalize_home_periods,
 )
+from .manifest import build_trip_manifest
+from .visual import build_visual_memories
 
 
 def write_json_atomic(path: Path, value: object) -> None:
@@ -99,7 +101,9 @@ def run_trip_sync(
     minimum_assets: int = 10,
     trip_padding_hours: float = 3,
     historical_review_days: float = 30,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    immich_public_url: str = "",
+    suggestion_event_limit: int = 10,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     assets = list(client.iter_timeline_assets(page_size=page_size))
     timeline_ids = {
         identifier
@@ -153,7 +157,14 @@ def run_trip_sync(
         add_missing_to_conflicts=True,
     )
     result["automation"] = mature["automation"]
-    return mature, result
+    manifest = build_trip_manifest(client, mature, immich_public_url=immich_public_url)
+    suggestions = build_visual_memories(
+        assets,
+        client.thumbnail,
+        event_limit=suggestion_event_limit,
+        max_assets=8,
+    )
+    return mature, result, manifest, suggestions
 
 
 def load_timezone(name: str) -> ZoneInfo:
