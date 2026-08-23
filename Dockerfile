@@ -12,4 +12,4 @@ RUN pip install --no-cache-dir . && mkdir -p /data && chown curator:curator /dat
 USER curator
 VOLUME ["/data"]
 ENTRYPOINT ["immich-curator"]
-CMD ["memories"]
+CMD ["trip-worker"]

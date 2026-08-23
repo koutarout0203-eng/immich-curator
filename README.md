@@ -1,7 +1,7 @@
 # Immich Curator
 
 Status: Active
-Version: 0.2.0
+Version: 0.3.0
 Started: 2026-08-15
 
 ## Purpose
@@ -27,9 +27,11 @@ Immich API (visibility=timeline)
 - 3枚以上のEventから最大12枚の代表Assetを選択
 - Favoriteを必ず優先し、残りをEvent全体から時間的に分散して選択
 - Event期間、枚数、場所、Favorite数、代表Assetを上位50 MemoryまでJSON出力
-- APIはGET/検索POSTだけを使用し、DBや写真Datasetをマウントしない
+- Immich DBや写真Datasetをマウントせず、公式APIだけを使用
+- 正式Trip Albumの一括作成、検証済み不足Assetのadditive補完、旧版Album候補の安全な抽出
+- TrueNAS常駐`trip-worker`による週次再解析、72時間の確定待ち、多重起動防止、履歴保存
 
-未実装: 画像内容に基づくBest Shot、類似判定、人物・ペットの重み付け、フィードバック学習、動画編集、Album作成、Archive、原本操作。
+未実装: サジェスト用Webアプリ、採用・保留フィードバック、動画編集、LifeOS向け旅行Manifest連携。Archive、原本操作、自動削除は対象外です。
 
 ## Authentication
 
@@ -206,23 +208,72 @@ python -m curator trip-albums `
   --add-missing-to-conflicts
 ```
 
-## Operational follow-ups (TBD)
+## Operational follow-ups
 
 ### 過去写真が後から追加された場合
 
-- 現在の旅行Albumはimmutable規約のため、既存Albumへ自動追加しない。
-- バックフィルされた写真が既存旅行期間に該当した場合の扱いは未決定。
-- 候補: 差分だけをReview Albumへ出す、`v2`の新Albumを作る、ユーザー承認時だけ既存Albumへ追加する。
+- 既存Albumが新版の厳密な部分集合なら、`trip-worker`が不足Assetだけを追加する。
+- 既存Albumに新版外のAssetがある場合は変更せず`conflict`として履歴へ残す。
+- 30日より古く同名Albumがない候補は、自動作成せず`historical_review`として人の確認を待つ。
 - GPSなし写真ではカメラ時刻ずれもあり得るため、日時だけで既存旅行へ自動追加しない。
 - 実装時はAsset ID単位の差分、追加理由、位置推定信頼度を記録し、削除は行わない。
 
 ### Album生成の自動実行タイミング
 
-- 現在は手動実行で、自動スケジュールは未実装。
-- 候補: 毎晩、週1回、または新規アップロードとImmichのmetadata・顔認識処理完了後。
-- 当日写真を早すぎる段階で確定しないよう、旅行終了後24〜72時間の待機期間を設ける案を検討する。
-- 自動化しても標準は候補JSON生成までとし、Album書き込みを自動化するかは別途決定する。
-- TrueNAS再起動、Immich処理中、API失敗時の再実行・排他・実行履歴の保持方法もTBD。
+- 既定は毎週日曜06:00 JST、旅行終了後72時間待機とする。
+- API失敗は記録して次回再試行し、lockで多重実行を防止する。
+- TrueNAS実機への配置、一回実行、再起動復帰、翌週実行の運用検証は未完了。
+
+## Remaining roadmap
+
+### 1. Deploy automatic Trip Albums on TrueNAS
+
+- `v0.3.0`イメージをbuild・publishし、TrueNAS Custom Appへ配置する。
+- 確認済みhome periodsを`/data/home-periods.json`として永続化する。
+- `trip-worker --once`で既存109 Albumがskip検証され、削除0・conflict 0となることを確認する。
+- 常駐後に次回実行時刻、再起動復帰、`/data/history/`を確認する。
+
+### 2. Suggestion review app
+
+- Curatorが生成したMemory候補を、JSONではなく写真中心のカードで比較・採用・保留できるTailnet限定Web UIにする。
+- 主要操作は候補を開く、代表写真を比較する、Immich Review Albumを作る、保留する、の4つに絞る。
+- 即時フィードバック、予測可能な戻る動線、ライト／ダーク、文字サイズ、reduced motion／transparency／contrastを設計条件にする。
+- 初期版では写真・metadata・visibilityを変更せず、Album所属だけを明示操作で追加する。
+
+### 3. LifeOS trip integration
+
+- CuratorはImmichに近いTrueNAS側で解析を継続し、LifeOSへ写真原本やAPI keyを渡さない。
+- LifeOSへ渡すのは、Trip ID、期間、代表地点、Immich Album ID、枚数、代表Asset参照を含むバージョン付き旅行Manifestとする。
+- LifeOS側はManifestを読み取り、既存Travel PWAへ「写真Albumを開く」導線を提供する。編集の正本はImmich、旅行計画の正本はTravel APIとして分離する。
+- Tailnet内通信、認証、再同期、削除伝播なし、バックアップ／復元を設計してからActiveにする。
+
+## Trip worker
+
+`v0.3.0`ではTrueNAS常駐用の`trip-worker`を利用できます。既定では毎週日曜06:00（指定タイムゾーン）にTimelineを再解析し、最後の遠方GPSアンカーから72時間以上経過した旅行だけを確定します。
+
+- 新規の正式Trip Albumを作成します。
+- 既存Albumが新版候補の厳密な部分集合の場合だけ、不足Assetを追加します。
+- 既存Albumに新版外のAssetがある場合や結合・分割が変わった場合は`conflict`として記録します。
+- Album、写真Asset、メタデータを自動削除しません。
+- 30日より古く、同名の既存Albumもない候補は、過去写真追加による旅行名変更や結合の可能性があるため自動作成せず`historical_review`として記録します。日数は`--historical-review-days`で変更できます。
+- `/data/trips-current.json`と`/data/trip-sync-latest.json`を原子的に更新し、各実行結果を`/data/history/`へ保存します。
+- `/data/trip-worker.lock`で多重実行を防止します。異常終了後12時間を超えたlockだけを次回起動時に回収します。
+
+確認済みの`home-candidates-3m.json`を、TrueNASの永続化先へ`home-periods.json`として配置してください。秘密情報は含みません。
+
+初回は常駐化せず、一回実行で検証します。
+
+```powershell
+python -m curator trip-worker `
+  --home-periods data/home-candidates-3m.json `
+  --data-dir data/trip-worker-test `
+  --settle-hours 72 `
+  --once
+```
+
+TrueNASでは`compose.example.yaml`のように`/data/home-periods.json`を使用します。スケジュールは`--weekday`（月曜=0、日曜=6）と`--time HH:MM`、タイムゾーンは`TZ`または`--timezone`で変更できます。
+
+コンテナのrestart policyは`unless-stopped`とし、TrueNAS再起動後にもスケジューラを復帰させます。API失敗は実行結果へ記録して常駐ループを継続し、次週に再試行します。
 
 Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 

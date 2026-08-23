@@ -1,12 +1,27 @@
 services:
   curator:
-    image: ghcr.io/OWNER/immich-curator:v0.2.0
+    image: ghcr.io/OWNER/immich-curator:v0.3.0
     container_name: immich-curator
-    restart: "no"
+    restart: unless-stopped
     environment:
       IMMICH_BASE_URL: "http://immich.example.local:2283"
       IMMICH_API_KEY: "REPLACE_IN_TRUENAS_UI"
       API_TIMEOUT_SECONDS: "30"
+      TZ: "Asia/Tokyo"
+    command:
+      - trip-worker
+      - --home-periods
+      - /data/home-periods.json
+      - --data-dir
+      - /data
+      - --settle-hours
+      - "72"
+      - --historical-review-days
+      - "30"
+      - --weekday
+      - "6"
+      - --time
+      - "06:00"
     volumes:
       - /mnt/POOL/apps/immich-curator:/data
     security_opt:

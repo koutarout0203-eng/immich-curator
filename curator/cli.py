@@ -4,9 +4,13 @@ import argparse
 import json
 import os
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from .clients import ApiError, ImmichClient, PhotoPrismClient
+from .automation import exclusive_run, load_timezone, next_weekly_run, run_trip_sync, write_json_atomic
 from .memories import build_memories
 from .reconcile import reconcile
 from .review import create_review_album
@@ -49,10 +53,7 @@ def _photoprism_client() -> PhotoPrismClient:
 
 
 def _write_json_atomic(path: Path, value: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    write_json_atomic(path, value)
 
 
 def run_probe() -> int:
@@ -262,6 +263,65 @@ def run_trip_albums_prune(previous_path: str, current_path: str, apply: bool) ->
     return 0
 
 
+def _run_trip_worker_once(
+    home_periods: str, data_dir: str, settle_hours: float, historical_review_days: float
+) -> dict[str, Any]:
+    root = Path(data_dir)
+    document = json.loads(Path(home_periods).read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("Home period JSON root must be an object")
+    with exclusive_run(root / "trip-worker.lock"):
+        candidates, result = run_trip_sync(
+            _immich_client(),
+            home_periods_document=document,
+            now=datetime.now(timezone.utc),
+            settle_hours=settle_hours,
+            historical_review_days=historical_review_days,
+        )
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        write_json_atomic(root / "trips-current.json", candidates)
+        write_json_atomic(root / "trip-sync-latest.json", result)
+        write_json_atomic(root / "history" / f"trip-sync-{stamp}.json", result)
+        return result
+
+
+def run_trip_worker(
+    home_periods: str,
+    data_dir: str,
+    settle_hours: float,
+    once: bool,
+    timezone_name: str,
+    weekday: int,
+    schedule_time: str,
+    historical_review_days: float,
+) -> int:
+    if settle_hours < 0 or settle_hours > 720:
+        raise ValueError("settle hours must be 0..720")
+    if historical_review_days < 1 or historical_review_days > 365:
+        raise ValueError("historical review days must be 1..365")
+    try:
+        hour, minute = (int(part) for part in schedule_time.split(":"))
+    except (TypeError, ValueError):
+        raise ValueError("schedule time must use HH:MM") from None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError("schedule time must use HH:MM")
+    zone = load_timezone(timezone_name)
+    if once:
+        result = _run_trip_worker_once(home_periods, data_dir, settle_hours, historical_review_days)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    while True:
+        now = datetime.now(zone)
+        next_run = next_weekly_run(now, weekday=weekday, hour=hour, minute=minute)
+        print(json.dumps({"status": "waiting", "next_run": next_run.isoformat()}, ensure_ascii=False), flush=True)
+        time.sleep(max(1, (next_run - now).total_seconds()))
+        try:
+            result = _run_trip_worker_once(home_periods, data_dir, settle_hours, historical_review_days)
+            print(json.dumps({"status": "completed", "counts": result.get("counts")}, ensure_ascii=False), flush=True)
+        except (ApiError, OSError, RuntimeError, ValueError) as exc:
+            print(json.dumps({"status": "failed", "error": str(exc)}, ensure_ascii=False), file=sys.stderr, flush=True)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="immich-curator")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -330,6 +390,17 @@ def build_parser() -> argparse.ArgumentParser:
     trip_prune.add_argument("--previous", required=True)
     trip_prune.add_argument("--current", required=True)
     trip_prune.add_argument("--apply", action="store_true")
+    trip_worker = subparsers.add_parser(
+        "trip-worker", help="run safe scheduled trip detection and additive album sync"
+    )
+    trip_worker.add_argument("--home-periods", default="/data/home-periods.json")
+    trip_worker.add_argument("--data-dir", default="/data")
+    trip_worker.add_argument("--settle-hours", type=float, default=72)
+    trip_worker.add_argument("--historical-review-days", type=float, default=30)
+    trip_worker.add_argument("--once", action="store_true")
+    trip_worker.add_argument("--timezone", default=os.environ.get("TZ", "Asia/Tokyo"))
+    trip_worker.add_argument("--weekday", type=int, default=6, help="Monday=0, Sunday=6")
+    trip_worker.add_argument("--time", default="06:00")
     homes = subparsers.add_parser(
         "home-candidates", help="suggest time-bounded home locations for manual review"
     )
@@ -384,6 +455,17 @@ def main(argv: list[str] | None = None) -> int:
             return run_trip_albums(args.input, args.apply, args.add_missing_to_conflicts)
         if args.command == "trip-albums-prune":
             return run_trip_albums_prune(args.previous, args.current, args.apply)
+        if args.command == "trip-worker":
+            return run_trip_worker(
+                args.home_periods,
+                args.data_dir,
+                args.settle_hours,
+                args.once,
+                args.timezone,
+                args.weekday,
+                args.time,
+                args.historical_review_days,
+            )
         if args.command == "home-candidates":
             if args.page_size < 1 or args.page_size > 1000 or args.window_months < 1 or args.window_months > 24:
                 raise ValueError("home candidate page size must be 1..1000 and window months 1..24")
