@@ -312,6 +312,8 @@ Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 
 `compose.example.yaml`はCustom App相当の雛形です。Curatorには写真DatasetやImmich DBをマウントしません。書き込み可能領域は結果保存用`/data`だけです。
 
+GitHubへpush後、`v0.3.0`タグまたはActionsの手動実行で、同梱workflowが`ghcr.io/<owner>/<repository>:v0.3.0`と`latest`をbuild・publishします。TrueNASでは`compose.example.yaml`の`OWNER`を実際のGitHub ownerへ置き換え、versioned tagを固定して使用します。
+
 初回は`curator probe`で両APIを確認し、その後`curator snapshot`を一度だけ実行します。v0.1は常駐スケジュールや自動更新を持ちません。
 
 ## Output contract
