@@ -312,7 +312,7 @@ Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 
 `compose.example.yaml`はCustom App相当の雛形です。Curatorには写真DatasetやImmich DBをマウントしません。書き込み可能領域は結果保存用`/data`だけです。
 
-GitHubへpush後、`v0.3.0`タグまたはActionsの手動実行で、同梱workflowが`ghcr.io/koutarout0203-eng/immich-curator:v0.3.0`と`latest`をbuild・publishします。TrueNASでは再現性のため`latest`ではなくversioned tagを固定して使用します。
+GitHubへpush後、`v0.3.0`タグまたはActionsの手動実行で、同梱workflowが`ghcr.io/koutarout0203-eng/immich-curator:v0.3.0`と`latest`をbuild・publishします。手動実行では`image_tag`を`v0.3.0`にします。TrueNASでは再現性のため`latest`ではなくversioned tagを固定して使用します。
 
 実機では専用Dataset `/mnt/tanico-nas/apps/immich-curator` を作り、コンテナUID/GID `10001:10001`が読み書きできるようにします。写真Dataset、Immich DB、Docker socketはマウントしません。確認済みの`data/home-candidates-3m.json`をDataset直下の`home-periods.json`として配置します。
 
