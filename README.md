@@ -310,7 +310,7 @@ Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 
 ## TrueNAS
 
-`compose.example.yaml`はCustom App相当の雛形です。Curatorには写真DatasetやImmich DBをマウントしません。書き込み可能領域は結果保存用`/data`だけです。
+TrueNASではCleanerと同じく、Apps画面から2つのCustom Appとして管理する方法を推奨します。`compose.example.yaml`は設定値の正本およびCompose運用時の任意の雛形です。Curatorには写真DatasetやImmich DBをマウントしません。書き込み可能領域は結果保存用`/data`だけです。
 
 GitHubへpush後、`v0.3.0`タグまたはActionsの手動実行で、同梱workflowが`ghcr.io/koutarout0203-eng/immich-curator:v0.3.0`と`latest`をbuild・publishします。手動実行では`image_tag`を`v0.3.0`にします。TrueNASでは再現性のため`latest`ではなくversioned tagを固定して使用します。
 
@@ -338,6 +338,26 @@ docker compose --env-file .env -f compose.example.yaml run --rm curator-worker t
 ```
 
 `trip-sync-latest.json`で`failed=0`、既存Albumが`skipped_verified`、削除処理がないことを確認してから、`docker compose up -d`でworkerとWeb UIを常駐させます。Web UIは`http://192.168.14.37:20810`で、LANまたはTailnet内だけから使用します。
+
+### TrueNAS Custom Apps（推奨）
+
+共通イメージは`ghcr.io/koutarout0203-eng/immich-curator:v0.3.0`です。2つのAppは同じHost Path `/mnt/tanico-nas/apps/immich-curator/data`をコンテナ内`/data`へマウントします。API keyとUI passwordはTrueNASの環境変数欄だけへ入力し、GitやDataset上のComposeへ書きません。
+
+`immich-curator-worker`は外部ポートを公開せず、次の引数で常駐します。
+
+```text
+trip-worker --home-periods /data/home-periods.json --data-dir /data --settle-hours 72 --historical-review-days 30 --weekday 6 --time 06:00
+```
+
+環境変数は`IMMICH_BASE_URL=http://192.168.14.37:2283`、`IMMICH_PUBLIC_URL=http://192.168.14.37:2283`、`IMMICH_API_KEY=<secret>`、`API_TIMEOUT_SECONDS=30`、タイムゾーンはTrueNAS組み込み設定で`Asia/Tokyo`を選択します。
+
+`immich-curator-web`は次の引数で起動し、Container PortとHost Portの両方を`20810/TCP`にします。
+
+```text
+suggestions-app --input /data/visual-memories.json --feedback /data/suggestion-feedback.json --host 0.0.0.0 --port 20810
+```
+
+worker共通の環境変数に加え、`CURATOR_UI_USERNAME`と`CURATOR_UI_PASSWORD`を設定します。Host Networkは無効、証明書なし、特権モード無効、追加capabilityなしで運用します。
 
 初回は上記の`probe`と`trip-worker --once`だけを実行し、結果確認後に常駐化します。PhotoPrism比較用の`snapshot`はTrueNAS常駐運用には不要です。
 
