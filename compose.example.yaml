@@ -24,7 +24,7 @@ services:
       - --time
       - "06:00"
     volumes:
-      - ${CURATOR_DATA_PATH:-/mnt/tanico-nas/apps/immich-curator}:/data
+      - ${CURATOR_DATA_PATH:-/mnt/tanico-nas/apps/immich-curator/data}:/data
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -58,7 +58,7 @@ services:
     ports:
       - "20810:20810"
     volumes:
-      - ${CURATOR_DATA_PATH:-/mnt/tanico-nas/apps/immich-curator}:/data
+      - ${CURATOR_DATA_PATH:-/mnt/tanico-nas/apps/immich-curator/data}:/data
     security_opt:
       - no-new-privileges:true
     cap_drop:

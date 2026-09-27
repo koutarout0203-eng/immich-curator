@@ -314,7 +314,15 @@ Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 
 GitHubへpush後、`v0.3.0`タグまたはActionsの手動実行で、同梱workflowが`ghcr.io/koutarout0203-eng/immich-curator:v0.3.0`と`latest`をbuild・publishします。手動実行では`image_tag`を`v0.3.0`にします。TrueNASでは再現性のため`latest`ではなくversioned tagを固定して使用します。
 
-実機では専用Dataset `/mnt/tanico-nas/apps/immich-curator` を作り、コンテナUID/GID `10001:10001`が読み書きできるようにします。写真Dataset、Immich DB、Docker socketはマウントしません。確認済みの`data/home-candidates-3m.json`をDataset直下の`home-periods.json`として配置します。
+実機では専用Dataset `/mnt/tanico-nas/apps/immich-curator` を作ります。Dataset直下のComposeと`.env`はroot管理とし、コンテナUID/GID `10001:10001`が読み書きできるのは`data/`だけです。写真Dataset、Immich DB、Docker socketはマウントしません。確認済みの`data/home-candidates-3m.json`は`data/home-periods.json`として配置します。
+
+SSH等で配備bundleをTrueNASへ転送した場合は、bundle内の`truenas-prepare.sh`を管理者権限で一度実行すると、ZFS Dataset、権限、初期ファイルを冪等に準備できます。既存`.env`は上書きしません。
+
+```bash
+sudo sh /mnt/tanico-nas/homes/codex/immich-curator-deploy-20260927/truenas-prepare.sh
+sudo nano /mnt/tanico-nas/apps/immich-curator/.env
+cd /mnt/tanico-nas/apps/immich-curator
+```
 
 `.env.example`を実機だけで`.env`へコピーし、Immich API keyとUI passwordを入力します。入力済み`.env`はGitへ追加しません。初回検証は常駐起動前に次の順で行います。
 
