@@ -1,14 +1,14 @@
 services:
   curator-worker:
-    image: ghcr.io/OWNER/immich-curator:v0.3.0
+    image: ghcr.io/koutarout0203-eng/immich-curator:v0.3.0
     container_name: immich-curator-worker
     restart: unless-stopped
     environment:
-      IMMICH_BASE_URL: "http://immich.example.local:2283"
-      IMMICH_API_KEY: "REPLACE_IN_TRUENAS_UI"
+      IMMICH_BASE_URL: "${IMMICH_BASE_URL:-http://192.168.14.37:2283}"
+      IMMICH_API_KEY: "${IMMICH_API_KEY:?set IMMICH_API_KEY outside Git}"
       API_TIMEOUT_SECONDS: "30"
       TZ: "Asia/Tokyo"
-      IMMICH_PUBLIC_URL: "http://immich.example.local:2283"
+      IMMICH_PUBLIC_URL: "${IMMICH_PUBLIC_URL:-http://192.168.14.37:2283}"
     command:
       - trip-worker
       - --home-periods
@@ -24,7 +24,7 @@ services:
       - --time
       - "06:00"
     volumes:
-      - /mnt/POOL/apps/immich-curator:/data
+      - ${CURATOR_DATA_PATH:-/mnt/tanico-nas/apps/immich-curator}:/data
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -34,15 +34,15 @@ services:
       - /tmp:size=16m
 
   curator-web:
-    image: ghcr.io/OWNER/immich-curator:v0.3.0
+    image: ghcr.io/koutarout0203-eng/immich-curator:v0.3.0
     container_name: immich-curator-web
     restart: unless-stopped
     environment:
-      IMMICH_BASE_URL: "http://immich.example.local:2283"
-      IMMICH_PUBLIC_URL: "http://immich.example.local:2283"
-      IMMICH_API_KEY: "REPLACE_IN_TRUENAS_UI"
-      CURATOR_UI_USERNAME: "REPLACE_IN_TRUENAS_UI"
-      CURATOR_UI_PASSWORD: "REPLACE_IN_TRUENAS_UI"
+      IMMICH_BASE_URL: "${IMMICH_BASE_URL:-http://192.168.14.37:2283}"
+      IMMICH_PUBLIC_URL: "${IMMICH_PUBLIC_URL:-http://192.168.14.37:2283}"
+      IMMICH_API_KEY: "${IMMICH_API_KEY:?set IMMICH_API_KEY outside Git}"
+      CURATOR_UI_USERNAME: "${CURATOR_UI_USERNAME:?set CURATOR_UI_USERNAME outside Git}"
+      CURATOR_UI_PASSWORD: "${CURATOR_UI_PASSWORD:?set CURATOR_UI_PASSWORD outside Git}"
       API_TIMEOUT_SECONDS: "30"
       TZ: "Asia/Tokyo"
     command:
@@ -58,7 +58,7 @@ services:
     ports:
       - "20810:20810"
     volumes:
-      - /mnt/POOL/apps/immich-curator:/data
+      - ${CURATOR_DATA_PATH:-/mnt/tanico-nas/apps/immich-curator}:/data
     security_opt:
       - no-new-privileges:true
     cap_drop:

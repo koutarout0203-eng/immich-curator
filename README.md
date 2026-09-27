@@ -312,9 +312,26 @@ Thumbnail取得にはImmich API keyの`asset.view`権限も必要です。
 
 `compose.example.yaml`はCustom App相当の雛形です。Curatorには写真DatasetやImmich DBをマウントしません。書き込み可能領域は結果保存用`/data`だけです。
 
-GitHubへpush後、`v0.3.0`タグまたはActionsの手動実行で、同梱workflowが`ghcr.io/<owner>/<repository>:v0.3.0`と`latest`をbuild・publishします。TrueNASでは`compose.example.yaml`の`OWNER`を実際のGitHub ownerへ置き換え、versioned tagを固定して使用します。
+GitHubへpush後、`v0.3.0`タグまたはActionsの手動実行で、同梱workflowが`ghcr.io/koutarout0203-eng/immich-curator:v0.3.0`と`latest`をbuild・publishします。TrueNASでは再現性のため`latest`ではなくversioned tagを固定して使用します。
 
-初回は`curator probe`で両APIを確認し、その後`curator snapshot`を一度だけ実行します。v0.1は常駐スケジュールや自動更新を持ちません。
+実機では専用Dataset `/mnt/tanico-nas/apps/immich-curator` を作り、コンテナUID/GID `10001:10001`が読み書きできるようにします。写真Dataset、Immich DB、Docker socketはマウントしません。確認済みの`data/home-candidates-3m.json`をDataset直下の`home-periods.json`として配置します。
+
+`.env.example`を実機だけで`.env`へコピーし、Immich API keyとUI passwordを入力します。入力済み`.env`はGitへ追加しません。初回検証は常駐起動前に次の順で行います。
+
+```bash
+docker compose --env-file .env -f compose.example.yaml pull
+docker compose --env-file .env -f compose.example.yaml run --rm curator-worker probe
+docker compose --env-file .env -f compose.example.yaml run --rm curator-worker trip-worker \
+  --home-periods /data/home-periods.json \
+  --data-dir /data \
+  --settle-hours 72 \
+  --historical-review-days 30 \
+  --once
+```
+
+`trip-sync-latest.json`で`failed=0`、既存Albumが`skipped_verified`、削除処理がないことを確認してから、`docker compose up -d`でworkerとWeb UIを常駐させます。Web UIは`http://192.168.14.37:20810`で、LANまたはTailnet内だけから使用します。
+
+初回は上記の`probe`と`trip-worker --once`だけを実行し、結果確認後に常駐化します。PhotoPrism比較用の`snapshot`はTrueNAS常駐運用には不要です。
 
 ## Output contract
 
